@@ -3,10 +3,10 @@
   <p><strong>Low-Latency Collaborative Code Editor with Distributed CRDT Synchronization</strong></p>
 
   <p>
-    <a href="[https://collabcode-ash.vercel.app](https://collabcode-ash.vercel.app)"><img src="[https://img.shields.io/badge/Live%20Demo-Vercel-000000?style=flat&logo=vercel&logoColor=white](https://img.shields.io/badge/Live%20Demo-Vercel-000000?style=flat&logo=vercel&logoColor=white)" alt="Live Demo" /></a>
-    <a href="[https://github.com/ashcodes2/CollabCode](https://github.com/ashcodes2/CollabCode)"><img src="[https://img.shields.io/badge/GitHub-Repository-181717?style=flat&logo=github&logoColor=white](https://img.shields.io/badge/GitHub-Repository-181717?style=flat&logo=github&logoColor=white)" alt="Repository" /></a>
-    <img src="[https://img.shields.io/badge/Node.js-v18+-339933?style=flat&logo=node.js&logoColor=white](https://img.shields.io/badge/Node.js-v18+-339933?style=flat&logo=node.js&logoColor=white)" alt="Node Version" />
-    <img src="[https://img.shields.io/badge/License-MIT-blue.svg](https://img.shields.io/badge/License-MIT-blue.svg)" alt="License" />
+    <a href="https://collabcode-ash.vercel.app"><img src="https://img.shields.io/badge/Live%20Demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo" /></a>
+    <a href="https://github.com/ashcodes2/CollabCode"><img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white" alt="Repository" /></a>
+    <img src="https://img.shields.io/badge/Node.js-v18+-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node Version" />
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License" />
   </p>
 </div>
 
