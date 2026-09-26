@@ -225,21 +225,25 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
     rooms.forEach((room, roomId) => {
-      room.members.delete(socket.id);
-      // If admin left, promote next member
-      if (room.adminSocketId === socket.id) {
-        const next = [...room.members][0];
-        if (next) {
-          room.adminSocketId = next;
-          io.to(next).emit('room-role', { isAdmin: true });
-          console.log(`New admin of ${roomId}: ${next}`);
-        } else {
-          // Room is now empty — clean up all state
+      if (room.members.has(socket.id)) {
+        room.members.delete(socket.id);
+
+        if (room.members.size === 0) {
+          // Room is completely empty — clean up all memory & destroy Yjs docs
           rooms.delete(roomId);
           const docs = roomFileDocs.get(roomId);
           if (docs) { docs.forEach(d => d.destroy()); }
           roomFileDocs.delete(roomId);
           fileTrees.delete(roomId);
+          console.log(`Room ${roomId} emptied and cleaned up.`);
+        } else if (room.adminSocketId === socket.id) {
+          // Admin left, promote next member
+          const next = [...room.members][0];
+          if (next) {
+            room.adminSocketId = next;
+            io.to(next).emit('room-role', { isAdmin: true });
+            console.log(`New admin of ${roomId}: ${next}`);
+          }
         }
       }
     });

@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Project = require('../models/Project');
 const jwt = require('jsonwebtoken');
 
@@ -7,6 +8,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod';
 
 // Middleware to verify token
 const verifyToken = (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'Database service is currently unavailable' });
+  }
   const token = req.header('Authorization')?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'Access denied' });
 

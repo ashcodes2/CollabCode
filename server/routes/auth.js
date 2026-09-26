@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 
 const router = express.Router();
@@ -8,8 +9,14 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod';
 
 // Register Route
 router.post('/register', async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'Database service is currently unavailable' });
+  }
   try {
     const { username, email, password } = req.body;
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: 'Username, email, and password are required' });
+    }
     
     // Check if user exists
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
@@ -30,8 +37,14 @@ router.post('/register', async (req, res) => {
 
 // Login Route
 router.post('/login', async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'Database service is currently unavailable' });
+  }
   try {
     const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
     
     // Find user
     const user = await User.findOne({ email });
