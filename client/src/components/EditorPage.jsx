@@ -583,6 +583,7 @@ export default function EditorPage() {
 
   // ── Misc ─────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const [srcDoc,  setSrcDoc]  = useState('');
   const [mobileTab, setMobileTab] = useState('editor'); // 'editor' | 'output'
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -608,11 +609,35 @@ export default function EditorPage() {
 
   // ── Socket.io + Yjs bootstrap (UNCHANGED) ─────────────────────────────────
   useEffect(() => {
-    const socket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001');
+    const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const configuredBackend = import.meta.env.VITE_BACKEND_URL;
+    const socketEndpoint = configuredBackend || (isLocal ? 'http://localhost:3001' : null);
+
+    if (!socketEndpoint) {
+      setIsConnected(false);
+      return;
+    }
+
+    const socket = io(socketEndpoint, {
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      timeout: 10000,
+    });
     socketRef.current = socket;
     Object.keys(DEFAULT_TREE).forEach(p => { if (!yjsDocs.current.has(p)) yjsDocs.current.set(p, new Y.Doc()); });
 
-    socket.on('connect', () => socket.emit('join-room', roomId));
+    socket.on('connect', () => {
+      setIsConnected(true);
+      socket.emit('join-room', roomId);
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socket.on('connect_error', () => {
+      setIsConnected(false);
+    });
 
     socket.on('room-role', ({ isAdmin: f }) => {
       setIsAdmin(f);
@@ -746,16 +771,58 @@ export default function EditorPage() {
     setCodeOutput(null);
     setRunMeta({ cpuTime:null, memory:null });
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-      const res = await fetch(`${backendUrl}/api/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({ language:selectedLang, sourceCode:codeContent, stdin:stdinValue })
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setCodeOutput(`❌ Execution failed: ${data.error || res.statusText || 'Unable to execute code.'}`);
-        addToast(`Execution error: ${data.error || 'Failed to run code'}`, 'error');
+      const payload = JSON.stringify({ language:selectedLang, sourceCode:codeContent, stdin:stdinValue });
+      const headers = { 'Content-Type':'application/json' };
+
+      const candidateUrls = [];
+      const configuredBackend = import.meta.env.VITE_BACKEND_URL;
+      const isDeployed = typeof window !== 'undefined' && (window.location.hostname.includes('vercel.app') || window.location.protocol === 'https:');
+
+      if (isDeployed) {
+        candidateUrls.push('/api/execute');
+        if (configuredBackend) candidateUrls.push(`${configuredBackend}/api/execute`);
+      } else {
+        if (configuredBackend) candidateUrls.push(`${configuredBackend}/api/execute`);
+        candidateUrls.push('http://localhost:3001/api/execute');
+        candidateUrls.push('/api/execute');
+      }
+
+      let res = null;
+      let lastErr = null;
+      let data = null;
+
+      for (const url of candidateUrls) {
+        try {
+          res = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: payload,
+            signal: AbortSignal.timeout(32000),
+          });
+          if (res.ok) {
+            data = await res.json();
+            break;
+          }
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+
+      if (!data) {
+        if (res && !res.ok) {
+          try {
+            data = await res.json();
+          } catch {
+            throw new Error(res.statusText || 'Execution request failed');
+          }
+        } else {
+          throw lastErr || new Error('Unable to connect to execution server');
+        }
+      }
+
+      if (data.error) {
+        setCodeOutput(`❌ Execution failed: ${data.error}`);
+        addToast(`Execution error: ${data.error}`, 'error');
       } else {
         const out = data.run?.output;
         setCodeOutput(out !== undefined && out !== null && out !== '' ? out : 'Program executed successfully with no stdout output.');
@@ -763,7 +830,7 @@ export default function EditorPage() {
         addToast('Code executed successfully', 'success');
       }
     } catch(err) {
-      setCodeOutput(`❌ Network error: Could not reach execution server (${err.message}). Make sure the backend server is running.`);
+      setCodeOutput(`❌ Network error: Could not reach execution server (${err.message}). Make sure the backend server or execution API is active.`);
       addToast('Network error: server unreachable', 'error');
     } finally {
       setIsRunning(false);
@@ -944,8 +1011,16 @@ export default function EditorPage() {
           )}
 
           {/* Room ID */}
-          <div className="room-chip-light">
-            <div className="room-chip-dot" />
+          <div
+            className="room-chip-light"
+            title={isConnected ? 'Connected to live collaboration server' : 'Collaboration server offline — local editing & cloud execution active'}>
+            <div
+              className="room-chip-dot"
+              style={{
+                background: isConnected ? '#22C55E' : '#F59E0B',
+                boxShadow: isConnected ? '0 0 6px rgba(34,197,94,0.6)' : '0 0 6px rgba(245,158,11,0.6)',
+              }}
+            />
             <span style={{ color:'rgba(255,255,255,0.32)' }}>Room</span>
             <strong style={{ color:'rgba(255,255,255,0.9)', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em' }}>{roomId}</strong>
           </div>

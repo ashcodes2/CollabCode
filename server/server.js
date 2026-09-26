@@ -22,6 +22,10 @@ const app = express();
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json());
 
+// Healthcheck & root status
+app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+app.get('/', (req, res) => res.json({ message: 'CollabCode API & Socket Server running', status: 'ok' }));
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
@@ -251,6 +255,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend Socket.io server running on port ${PORT}`);
 });
