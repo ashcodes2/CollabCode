@@ -142,16 +142,28 @@ function starterFiles(folderPath) {
   };
 }
 
-// ── Monaco theme (UNCHANGED) ──────────────────────────────────────────────────
+// ── Monaco theme (dark professional) ────────────────────────────────────────
 let emmetInitialized = false;
 function defineTheme(monaco) {
   monaco.editor.defineTheme('collab-dark', {
-    base:'vs-dark', inherit:true, rules:[],
+    base:'vs-dark', inherit:true,
+    rules:[
+      { token:'comment',    foreground:'5A5A70', fontStyle:'italic' },
+      { token:'keyword',    foreground:'60A5FA' },
+      { token:'string',     foreground:'34D399' },
+      { token:'number',     foreground:'F59E0B' },
+    ],
     colors:{
-      'editor.background':              '#06060f',
-      'editor.lineHighlightBackground': '#ffffff06',
-      'editorLineNumber.foreground':    '#ffffff1a',
-      'editorGutter.background':        '#06060f',
+      'editor.background':                 '#0D0D0F',
+      'editor.foreground':                 '#E4E4E7',
+      'editor.lineHighlightBackground':    '#141417',
+      'editorLineNumber.foreground':       '#3A3A45',
+      'editorLineNumber.activeForeground': '#60606E',
+      'editorGutter.background':           '#0D0D0F',
+      'editorIndentGuide.background1':     '#1C1C20',
+      'editor.selectionBackground':        '#3B82F630',
+      'editorCursor.foreground':           '#3B82F6',
+      'editor.findMatchBackground':        '#3B82F640',
     },
   });
   monaco.editor.setTheme('collab-dark');
@@ -176,7 +188,7 @@ function FileIcon({ name, size=13 }) {
   const ext = name.split('.').pop();
   if (ext==='html') return <FileCode  size={size} color="#e44d26" />;
   if (ext==='css')  return <FileCog   size={size} color="#5b8af5" />;
-  if (ext==='js')   return <Braces    size={size} color="#f7df1e" />;
+  if (ext==='js')   return <Braces    size={size} color="#b59700" />;
   return <FileText size={size} color="rgba(255,255,255,0.3)" />;
 }
 
@@ -199,9 +211,10 @@ function TreeNode({ path,node,tree,level=0, activeFilePath,previewFilePath, onFi
           style={{
             display:'flex', alignItems:'center', gap:5,
             padding:`5px 10px 5px ${8+indent}px`,
-            cursor:'pointer', color: hovered ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.5)',
+            cursor:'pointer',
+            color: hovered ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)',
             fontSize:'0.78rem', userSelect:'none', borderRadius:6,
-            background: hovered ? 'rgba(255,255,255,0.04)' : 'transparent',
+            background: hovered ? 'rgba(255,255,255,0.05)' : 'transparent',
             transition:'all 0.15s',
           }}
         >
@@ -209,19 +222,19 @@ function TreeNode({ path,node,tree,level=0, activeFilePath,previewFilePath, onFi
             ? <ChevronDown  size={10} color="rgba(255,255,255,0.25)" />
             : <ChevronRight size={10} color="rgba(255,255,255,0.25)" />}
           {isOpen
-            ? <FolderOpen size={12} color="#fbbf24" />
-            : <Folder     size={12} color="#fbbf24" />}
+            ? <FolderOpen size={12} color="#F59E0B" />
+            : <Folder     size={12} color="#F59E0B" />}
           <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:'0.77rem' }}>
             {node.name}
           </span>
           {hovered && (
             <div style={{ display:'flex', gap:2 }}>
               <button onClick={e=>{e.stopPropagation();onAddFile(path);}} title="New file"
-                style={treeBtn} onMouseEnter={e=>e.currentTarget.style.color='#a78bfa'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.2)'}>
+                style={treeBtnLight} onMouseEnter={e=>e.currentTarget.style.color='#3B82F6'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.25)'}>
                 <FilePlus size={10}/>
               </button>
               <button onClick={e=>{e.stopPropagation();onDelete(path);}} title="Delete"
-                style={treeBtn} onMouseEnter={e=>e.currentTarget.style.color='#f87171'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.2)'}>
+                style={treeBtnLight} onMouseEnter={e=>e.currentTarget.style.color='#EF4444'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.25)'}>
                 <Trash2 size={10}/>
               </button>
             </div>
@@ -251,41 +264,42 @@ function TreeNode({ path,node,tree,level=0, activeFilePath,previewFilePath, onFi
         display:'flex', alignItems:'center', gap:6,
         padding:`5px 10px 5px ${8+indent}px`,
         cursor:'pointer', borderRadius:6,
-        background:  isActive ? 'rgba(99,102,241,0.15)' : hovered ? 'rgba(255,255,255,0.04)' : 'transparent',
-        borderLeft: `2px solid ${isActive ? '#6366f1' : 'transparent'}`,
-        color:       isActive ? '#fff' : hovered ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.45)',
+        background:  isActive ? 'rgba(59,130,246,0.10)' : hovered ? 'rgba(255,255,255,0.05)' : 'transparent',
+        borderLeft: `2px solid ${isActive ? '#3B82F6' : 'transparent'}`,
+        color:       isActive ? '#3B82F6' : hovered ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)',
         fontSize:'0.77rem', transition:'all 0.12s',
       }}
     >
       <FileIcon name={node.name} />
-      <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+      <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight: isActive ? 600 : 400 }}>
         {node.name}
       </span>
       {isHtml && (
         <button title="Set as live preview"
           onClick={e=>{e.stopPropagation();onSetPreview(path);}}
           style={{
-            background: isPreview?'rgba(16,185,129,0.15)':'transparent',
-            border:`1px solid ${isPreview?'rgba(16,185,129,0.4)':'transparent'}`,
+            background: isPreview ? 'rgba(34,197,94,0.10)' : 'transparent',
+            border:`1px solid ${isPreview ? 'rgba(34,197,94,0.22)' : 'transparent'}`,
             borderRadius:4, cursor:'pointer',
-            color: isPreview?'#6ee7b7':'rgba(255,255,255,0.2)',
+            color: isPreview ? '#22C55E' : 'rgba(255,255,255,0.25)',
             padding:'1px 4px', display:'flex', alignItems:'center', transition:'all 0.15s',
           }}
-          onMouseEnter={e=>{if(!isPreview)e.currentTarget.style.color='#6ee7b7';}}
-          onMouseLeave={e=>{if(!isPreview)e.currentTarget.style.color='rgba(255,255,255,0.2)';}}>
+          onMouseEnter={e=>{if(!isPreview)e.currentTarget.style.color='#22C55E';}}
+          onMouseLeave={e=>{if(!isPreview)e.currentTarget.style.color='rgba(255,255,255,0.25)';}}>
           <Globe size={9}/>
         </button>
       )}
       {hovered && (
         <button onClick={e=>{e.stopPropagation();onDelete(path);}} title="Delete file"
-          style={treeBtn} onMouseEnter={e=>e.currentTarget.style.color='#f87171'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.2)'}>
+          style={treeBtnLight} onMouseEnter={e=>e.currentTarget.style.color='#EF4444'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.25)'}>
           <Trash2 size={10}/>
         </button>
       )}
     </div>
   );
 }
-const treeBtn = { background:'transparent',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.2)',display:'flex',padding:'1px',flexShrink:0,transition:'color 0.15s' };
+const treeBtnLight = { background:'transparent',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.25)',display:'flex',padding:'1px',flexShrink:0,transition:'color 0.15s' };
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Language Selector (redesigned) ────────────────────────────────────────────
@@ -315,11 +329,10 @@ function LanguageSelector({ currentLang, onChange, disabled }) {
         style={{
           display:'flex', alignItems:'center', gap:7,
           padding:'5px 10px 5px 8px', borderRadius:8, cursor:disabled?'default':'pointer',
-          background: open ? 'rgba(255,255,255,0.08)' : lang.bg,
-          border:`1px solid ${lang.color}33`,
-          color:'#fff', fontSize:'0.78rem', fontWeight:600,
+          background: open ? '#1C1C20' : '#141417',
+          border:'1px solid rgba(255,255,255,0.08)',
+          color:'rgba(255,255,255,0.75)', fontSize:'0.78rem', fontWeight:600,
           transition:'all 0.2s', minWidth:130, whiteSpace:'nowrap',
-          boxShadow: open ? `0 0 16px ${lang.color}22` : 'none',
         }}
       >
         <span style={{ fontSize:'0.88rem', lineHeight:1 }}>{lang.icon}</span>
@@ -334,20 +347,11 @@ function LanguageSelector({ currentLang, onChange, disabled }) {
             animate={{ opacity:1, y:0,  scale:1    }}
             exit={{    opacity:0, y:-6, scale:0.97 }}
             transition={{ duration:0.15 }}
-            className="lang-dropdown"
-            style={{
-              position:'absolute', top:'110%', left:0, zIndex:9999,
-              background:'rgba(8,8,24,0.97)',
-              border:'1px solid rgba(255,255,255,0.1)',
-              borderRadius:12, padding:'6px',
-              minWidth:210, maxHeight:400, overflowY:'auto',
-              boxShadow:'0 24px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04)',
-              backdropFilter:'blur(20px)',
-            }}
+            className="lang-dropdown-light"
           >
             {groups.map(group => (
               <div key={group.label}>
-                <div style={{ fontSize:'0.6rem', fontWeight:700, letterSpacing:'0.1em', color:'rgba(255,255,255,0.25)', textTransform:'uppercase', padding:'6px 8px 3px', borderBottom:'1px solid rgba(255,255,255,0.05)', marginBottom:3 }}>
+                <div className="lang-group-label-light">
                   {group.label}
                 </div>
                 {group.keys.map(key => {
@@ -358,16 +362,16 @@ function LanguageSelector({ currentLang, onChange, disabled }) {
                       style={{
                         display:'flex', alignItems:'center', gap:8,
                         padding:'6px 8px', borderRadius:7, cursor:'pointer',
-                        background: isActive ? `${l.color}18` : 'transparent',
-                        border:`1px solid ${isActive ? `${l.color}33` : 'transparent'}`,
+                        background: isActive ? 'rgba(59,130,246,0.10)' : 'transparent',
+                        border:`1px solid ${isActive ? 'rgba(59,130,246,0.2)' : 'transparent'}`,
                         marginBottom:2, transition:'background 0.12s',
                       }}
                       onMouseEnter={e=>{ if(!isActive) e.currentTarget.style.background='rgba(255,255,255,0.05)'; }}
                       onMouseLeave={e=>{ if(!isActive) e.currentTarget.style.background='transparent'; }}
                     >
                       <span style={{ fontSize:'0.82rem', width:20, textAlign:'center', flexShrink:0 }}>{l.icon}</span>
-                      <span style={{ fontSize:'0.78rem', color: isActive ? l.color : 'rgba(255,255,255,0.7)', fontWeight: isActive?700:400, flex:1 }}>{l.label}</span>
-                      <span style={{ fontSize:'0.62rem', color:'rgba(255,255,255,0.2)', fontFamily:'monospace' }}>.{l.ext}</span>
+                      <span style={{ fontSize:'0.78rem', color: isActive ? '#3B82F6' : 'rgba(255,255,255,0.65)', fontWeight: isActive?700:400, flex:1 }}>{l.label}</span>
+                      <span style={{ fontSize:'0.62rem', color:'rgba(255,255,255,0.22)', fontFamily:'monospace' }}>.{l.ext}</span>
                     </div>
                   );
                 })}
@@ -389,21 +393,21 @@ function OutputPanel({ output, isRunning, onRun, stdin, onStdinChange, cpuTime, 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }); }, [output]);
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#06060f', fontFamily:"'JetBrains Mono',monospace", overflow:'hidden' }}>
+    <div className="output-panel-light">
       {/* ── Top bar ── */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', background:'rgba(255,255,255,0.02)', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:6, color:'rgba(255,255,255,0.4)', fontSize:'0.68rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', fontFamily:'Inter,sans-serif' }}>
-          <TerminalIcon size={12} color="#4ade80" />
+      <div className="output-topbar-light">
+        <div className="output-label-light">
+          <TerminalIcon size={12} color="#3B82F6" />
           Output
         </div>
         <div style={{ flex:1 }}/>
         {cpuTime && (
-          <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.65rem', color:'rgba(255,255,255,0.25)', fontFamily:'Inter,sans-serif' }}>
+          <div className="output-meta-light">
             <Clock size={10}/> {cpuTime}s
           </div>
         )}
         {memory && (
-          <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.65rem', color:'rgba(255,255,255,0.25)', fontFamily:'Inter,sans-serif' }}>
+          <div className="output-meta-light">
             <Cpu size={10}/> {memory}KB
           </div>
         )}
@@ -413,16 +417,7 @@ function OutputPanel({ output, isRunning, onRun, stdin, onStdinChange, cpuTime, 
             whileTap={{ scale:0.97 }}
             onClick={onRun}
             disabled={isRunning}
-            style={{
-              display:'flex', alignItems:'center', gap:6,
-              padding:'5px 14px', borderRadius:7, border:'none',
-              cursor: isRunning?'not-allowed':'pointer',
-              background: isRunning ? 'rgba(74,222,128,0.07)' : 'linear-gradient(135deg,#22c55e,#059669)',
-              color: isRunning?'#4ade80':'#fff',
-              fontWeight:700, fontSize:'0.75rem', fontFamily:'Inter,sans-serif',
-              boxShadow: isRunning?'none':'0 0 16px rgba(34,197,94,0.3)',
-              transition:'box-shadow 0.2s',
-            }}
+            className="run-full-btn-light"
           >
             {isRunning
               ? <span style={{ display:'inline-block', animation:'spin 0.8s linear infinite' }}>↻</span>
@@ -434,34 +429,34 @@ function OutputPanel({ output, isRunning, onRun, stdin, onStdinChange, cpuTime, 
 
       {/* ── stdin ── */}
       {canEdit && (
-        <div style={{ display:'flex', gap:10, padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,0.04)', flexShrink:0, background:'rgba(255,255,255,0.01)' }}>
-          <span style={{ fontSize:'0.62rem', fontWeight:700, color:'rgba(255,255,255,0.25)', textTransform:'uppercase', letterSpacing:'0.1em', paddingTop:5, whiteSpace:'nowrap', fontFamily:'Inter,sans-serif' }}>stdin</span>
+        <div className="stdin-row-light">
+          <span className="stdin-label-light">stdin</span>
           <textarea
             value={stdin}
             onChange={e => onStdinChange(e.target.value)}
             placeholder="Provide input (one value per line)…"
             rows={2}
-            style={{ flex:1, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:6, color:'#4ade80', fontFamily:"'JetBrains Mono',monospace", fontSize:12, padding:'5px 8px', outline:'none', resize:'none', lineHeight:1.5, caretColor:'#4ade80' }}
+            className="stdin-textarea-light"
           />
         </div>
       )}
 
       {/* ── Output area ── */}
-      <div className="output-scroll" style={{ flex:1, overflowY:'auto', padding:'12px 16px' }}>
+      <div className="output-scroll-light">
         {!output && !isRunning && (
-          <div style={{ color:'rgba(255,255,255,0.18)', fontSize:'0.78rem', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:8, marginTop:4 }}>
+          <div style={{ color:'rgba(255,255,255,0.3)', fontSize:'0.78rem', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:8, marginTop:4 }}>
             <Zap size={13} color="rgba(255,255,255,0.15)"/>
-            Click <strong style={{ color:'#4ade80', margin:'0 4px' }}>Run Code</strong> to execute your program
+            Click <strong style={{ color:'#22C55E', margin:'0 4px' }}>Run Code</strong> to execute your program
           </div>
         )}
         {isRunning && (
-          <div style={{ display:'flex', alignItems:'center', gap:8, color:'#60a5fa', fontSize:'0.78rem', fontFamily:'Inter,sans-serif' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, color:'#3B82F6', fontSize:'0.78rem', fontFamily:'Inter,sans-serif' }}>
             <span style={{ display:'inline-block', animation:'spin 0.8s linear infinite' }}>↻</span>
             Executing on JDoodle sandbox…
           </div>
         )}
         {output && !isRunning && (
-          <pre style={{ color:'#d4d4d4', whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0, lineHeight:1.65, fontSize:'12.5px' }}>
+          <pre style={{ color:'rgba(255,255,255,0.82)', whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0, lineHeight:1.65, fontSize:'12.5px', fontFamily:"'JetBrains Mono',monospace" }}>
             {output}
           </pre>
         )}
@@ -475,24 +470,14 @@ function OutputPanel({ output, isRunning, onRun, stdin, onStdinChange, cpuTime, 
 // ── Toast notification (redesigned) ──────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 function Toast({ t }) {
-  const colors = {
-    success: { bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.3)', text:'#6ee7b7' },
-    error:   { bg:'rgba(239,68,68,0.12)',  border:'rgba(239,68,68,0.3)',  text:'#fca5a5' },
-    info:    { bg:'rgba(99,102,241,0.12)', border:'rgba(99,102,241,0.3)', text:'#a5b4fc' },
-  };
-  const c = colors[t.type] || colors.info;
+  const cls = t.type === 'success' ? 'toast-success-light' : t.type === 'error' ? 'toast-error-light' : 'toast-info-light';
   return (
     <motion.div
       initial={{ x:80, opacity:0 }}
       animate={{ x:0,  opacity:1 }}
       exit={{    x:80, opacity:0 }}
       transition={{ type:'spring', stiffness:400, damping:30 }}
-      style={{
-        padding:'11px 18px', borderRadius:12, fontSize:'0.82rem', fontWeight:600,
-        backdropFilter:'blur(20px)', background:c.bg, border:`1px solid ${c.border}`,
-        color:c.text, boxShadow:'0 8px 32px rgba(0,0,0,0.5)',
-        fontFamily:'Inter,sans-serif',
-      }}
+      className={cls}
     >
       {t.msg}
     </motion.div>
@@ -509,35 +494,28 @@ function EditRequestPopup({ req, onApprove, onDeny, extraCount }) {
       animate={{ x:0,  opacity:1, scale:1    }}
       exit={{    x:80, opacity:0, scale:0.95 }}
       transition={{ type:'spring', stiffness:350, damping:28 }}
-      style={{
-        width:300, borderRadius:16, overflow:'hidden',
-        background:'rgba(7,7,22,0.95)', backdropFilter:'blur(24px)',
-        border:'1px solid rgba(168,85,247,0.35)',
-        boxShadow:'0 0 0 1px rgba(255,255,255,0.04), 0 32px 80px rgba(0,0,0,0.8), 0 0 40px rgba(168,85,247,0.15)',
-      }}
+      className="edit-req-popup-light"
     >
-      <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', alignItems:'center', gap:10 }}>
-        <div style={{ width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,#6366f1,#a855f7)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1rem',flexShrink:0,boxShadow:'0 0 16px rgba(168,85,247,0.4)' }}>
-          👤
-        </div>
+      <div className="edit-req-header-light">
+        <div className="edit-req-avatar-light">👤</div>
         <div>
-          <div style={{ fontSize:'0.62rem',color:'rgba(255,255,255,0.35)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',fontFamily:'Inter,sans-serif' }}>Edit Request</div>
-          <div style={{ fontSize:'0.88rem',fontWeight:700,color:'#fff',fontFamily:'Inter,sans-serif' }}>{req.requesterName}</div>
+          <div style={{ fontSize:'0.62rem',color:'rgba(255,255,255,0.28)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',fontFamily:'Inter,sans-serif' }}>Edit Request</div>
+          <div style={{ fontSize:'0.88rem',fontWeight:700,color:'rgba(255,255,255,0.9)',fontFamily:'Inter,sans-serif' }}>{req.requesterName}</div>
         </div>
         {extraCount > 0 && (
-          <span style={{ marginLeft:'auto',fontSize:'0.65rem',background:'rgba(168,85,247,0.2)',padding:'2px 7px',borderRadius:99,color:'#c084fc',fontWeight:700,fontFamily:'Inter,sans-serif' }}>
+          <span style={{ marginLeft:'auto',fontSize:'0.65rem',background:'rgba(59,130,246,0.10)',padding:'2px 7px',borderRadius:99,color:'#3B82F6',fontWeight:700,fontFamily:'Inter,sans-serif' }}>
             +{extraCount}
           </span>
         )}
       </div>
-      <div style={{ padding:'10px 16px', fontSize:'0.78rem',color:'rgba(255,255,255,0.5)',fontFamily:'Inter,sans-serif' }}>
-        Wants to <strong style={{ color:'#fff' }}>edit</strong> this room. Grant access?
+      <div style={{ padding:'10px 16px', fontSize:'0.78rem',color:'rgba(255,255,255,0.42)',fontFamily:'Inter,sans-serif' }}>
+        Wants to <strong style={{ color:'rgba(255,255,255,0.88)' }}>edit</strong> this room. Grant access?
       </div>
       <div style={{ display:'flex',gap:8,padding:'0 16px 14px' }}>
-        <button onClick={onApprove} style={{ flex:1,padding:'8px',borderRadius:9,border:'1px solid rgba(16,185,129,0.35)',background:'rgba(16,185,129,0.12)',color:'#6ee7b7',fontWeight:700,fontSize:'0.78rem',cursor:'pointer',fontFamily:'Inter,sans-serif',transition:'background 0.15s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(16,185,129,0.25)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(16,185,129,0.12)'}>
+        <button onClick={onApprove} className="edit-req-approve-light">
           ✅ Approve
         </button>
-        <button onClick={onDeny} style={{ flex:1,padding:'8px',borderRadius:9,border:'1px solid rgba(239,68,68,0.35)',background:'rgba(239,68,68,0.1)',color:'#fca5a5',fontWeight:700,fontSize:'0.78rem',cursor:'pointer',fontFamily:'Inter,sans-serif',transition:'background 0.15s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(239,68,68,0.22)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(239,68,68,0.1)'}>
+        <button onClick={onDeny} className="edit-req-deny-light">
           ❌ Deny
         </button>
       </div>
@@ -832,42 +810,29 @@ export default function EditorPage() {
   // ── RENDER ────────────────────────────────────────────────────────────────
   // ══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="app-container">
+    <div className="editor-root-light">
       {/* ── HEADER ──────────────────────────────────────────────────────────── */}
-      <header className="glass-header">
+      <header className="editor-header-light">
         {/* Logo */}
-        <Link to="/" className="logo-text" style={{ flexShrink:0 }}>
-          <Code2 size={17} color="#818cf8" style={{ filter:'drop-shadow(0 0 6px #818cf866)' }} />
+        <Link to="/" className="logo-text-light">
+          <Code2 size={17} color="#3B82F6" />
           <span>CollabCode</span>
         </Link>
 
         {/* Divider */}
-        <div style={{ width:1, height:18, background:'rgba(255,255,255,0.07)', flexShrink:0 }}/>
+        <div className="header-divider-light" />
 
         {/* Mode toggle */}
-        <div style={{ display:'flex', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:8, padding:2, gap:2, flexShrink:0 }}>
+        <div className="mode-toggle-light">
           {[
             { mode:'web',  icon:<Layout size={12}/>,       label:'Web'  },
             { mode:'code', icon:<TerminalIcon size={12}/>, label:'Code' },
           ].map(m => {
             const active = editorMode === m.mode;
             return (
-              <button key={m.mode} className="mode-btn" onClick={() => handleModeSwitch(m.mode)}
-                style={{
-                  display:'flex', alignItems:'center', gap:5, padding:'4px 11px',
-                  borderRadius:6, border:'none', cursor:'pointer',
-                  background: active
-                    ? m.mode==='code'
-                      ? `${currentLangDef.bg}`
-                      : 'rgba(99,102,241,0.2)'
-                    : 'transparent',
-                  color: active
-                    ? m.mode==='code' ? currentLangDef.color : '#818cf8'
-                    : 'rgba(255,255,255,0.35)',
-                  fontWeight:600, fontSize:'0.75rem', fontFamily:'Inter,sans-serif',
-                  boxShadow: active ? '0 0 0 1px rgba(255,255,255,0.08)' : 'none',
-                  transition:'all 0.2s',
-                }}
+              <button key={m.mode}
+                className={`mode-btn-light${active ? ` active ${m.mode}` : ''}`}
+                onClick={() => handleModeSwitch(m.mode)}
               >
                 {m.icon} {m.label}
               </button>
@@ -886,13 +851,7 @@ export default function EditorPage() {
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           {/* Admin badge */}
           {isAdmin && (
-            <div style={{
-              display:'flex', alignItems:'center', gap:5,
-              padding:'3px 10px', borderRadius:99,
-              background:'rgba(99,102,241,0.12)', border:'1px solid rgba(99,102,241,0.3)',
-              fontSize:'0.7rem', fontWeight:700, color:'#818cf8',
-              fontFamily:'Inter,sans-serif',
-            }}>
+            <div className="badge-admin-light">
               👑 Admin
             </div>
           )}
@@ -900,32 +859,32 @@ export default function EditorPage() {
           {/* View-only + request button */}
           {!canEdit && !isAdmin && (
             <>
-              <div style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:99, background:'rgba(251,191,36,0.1)', border:'1px solid rgba(251,191,36,0.25)', fontSize:'0.7rem', fontWeight:700, color:'#fbbf24', fontFamily:'Inter,sans-serif' }}>
+              <div className="badge-view-light">
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 View Only
               </div>
               <button onClick={requestEditAccess} disabled={editRequestPending}
-                style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:7, cursor:editRequestPending?'default':'pointer', border:'1px solid rgba(168,85,247,0.4)', background:'rgba(168,85,247,0.1)', color:editRequestPending?'rgba(168,85,247,0.5)':'#c084fc', fontWeight:600, fontSize:'0.72rem', fontFamily:'Inter,sans-serif', transition:'all 0.2s' }}>
+                className="request-edit-btn-light">
                 {editRequestPending
-                  ? <><span style={{ width:9,height:9,border:'1.5px solid #a855f7',borderTopColor:'transparent',borderRadius:'50%',display:'inline-block',animation:'spin 0.8s linear infinite' }}/> Waiting…</>
+                  ? <><span style={{ width:9,height:9,border:'1.5px solid #3B82F6',borderTopColor:'transparent',borderRadius:'50%',display:'inline-block',animation:'spin 0.8s linear infinite' }}/> Waiting…</>
                   : '🔓 Request Edit'}
               </button>
             </>
           )}
 
           {/* Room ID */}
-          <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', borderRadius:7, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', fontSize:'0.72rem', fontFamily:'Inter,sans-serif' }}>
-            <div style={{ width:5,height:5,borderRadius:'50%',background:'#4ade80',boxShadow:'0 0 6px #4ade80',animation:'pulse-glow 2.5s infinite' }}/>
-            <span style={{ color:'rgba(255,255,255,0.35)' }}>Room</span>
-            <strong style={{ color:'#fff', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em' }}>{roomId}</strong>
+          <div className="room-chip-light">
+            <div className="room-chip-dot" />
+            <span style={{ color:'rgba(255,255,255,0.32)' }}>Room</span>
+            <strong style={{ color:'rgba(255,255,255,0.9)', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em' }}>{roomId}</strong>
           </div>
 
           {/* Copy Room ID button */}
           <motion.button
             whileHover={{ scale:1.03 }} whileTap={{ scale:0.97 }}
             onClick={copyRoomId}
-            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:7, cursor:'pointer', border:`1px solid ${copied?'rgba(16,185,129,0.4)':'rgba(99,102,241,0.35)'}`, background:copied?'rgba(16,185,129,0.1)':'rgba(99,102,241,0.1)', color:'#fff', fontWeight:600, fontSize:'0.72rem', fontFamily:'Inter,sans-serif', transition:'all 0.2s' }}>
-            {copied ? <Check size={12} color="#4ade80"/> : <Copy size={12}/>}
+            className={`copy-btn-light${copied ? ' copied' : ''}`}>
+            {copied ? <Check size={12} color="#22C55E"/> : <Copy size={12}/>}
             {copied ? 'Copied!' : 'Copy ID'}
           </motion.button>
         </div>
@@ -951,30 +910,21 @@ export default function EditorPage() {
       </div>
 
       {/* ── MAIN LAYOUT ──────────────────────────────────────────────────────── */}
-      <main ref={containerRef} style={{ display:'flex', flex:1, padding:'6px', gap:0, overflow:'hidden', minHeight:0 }}>
+      <main ref={containerRef} className="editor-main-light">
 
         {/* ══ WEB MODE SIDEBAR ══════════════════════════════════════════════ */}
         {editorMode === 'web' && (
-          <div style={{
-            width:`${SIDEBAR_W}px`, flexShrink:0, marginRight:6,
-            background:'rgba(6,6,18,0.7)', backdropFilter:'blur(20px)',
-            border:'1px solid rgba(255,255,255,0.06)', borderRadius:12,
-            display:'flex', flexDirection:'column', overflow:'hidden',
-          }}>
+          <div className="sidebar-light">
             {/* Sidebar header */}
-            <div style={{ padding:'8px 10px', fontSize:'0.6rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'rgba(255,255,255,0.25)', borderBottom:'1px solid rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, fontFamily:'Inter,sans-serif' }}>
+            <div className="sidebar-header-light">
               <span>Explorer</span>
               <div style={{ display:'flex', gap:2 }}>
                 <button onClick={() => openNewItemForm('file','')} title="New File"
-                  style={{ background:'transparent',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.3)',display:'flex',padding:'3px',borderRadius:4,transition:'all 0.15s' }}
-                  onMouseEnter={e=>{e.currentTarget.style.color='#a78bfa';e.currentTarget.style.background='rgba(255,255,255,0.06)';}}
-                  onMouseLeave={e=>{e.currentTarget.style.color='rgba(255,255,255,0.3)';e.currentTarget.style.background='transparent';}}>
+                  className="sidebar-icon-btn-light">
                   <FilePlus size={12}/>
                 </button>
                 <button onClick={() => openNewItemForm('folder','')} title="New Folder"
-                  style={{ background:'transparent',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.3)',display:'flex',padding:'3px',borderRadius:4,transition:'all 0.15s' }}
-                  onMouseEnter={e=>{e.currentTarget.style.color='#fbbf24';e.currentTarget.style.background='rgba(255,255,255,0.06)';}}
-                  onMouseLeave={e=>{e.currentTarget.style.color='rgba(255,255,255,0.3)';e.currentTarget.style.background='transparent';}}>
+                  className="sidebar-icon-btn-light">
                   <FolderPlus size={12}/>
                 </button>
               </div>
@@ -982,21 +932,21 @@ export default function EditorPage() {
 
             {/* New-item input */}
             {newItem.visible && (
-              <div style={{ padding:'6px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)', display:'flex', alignItems:'center', gap:5, flexShrink:0, background:'rgba(99,102,241,0.05)' }}>
-                {newItem.type==='folder' ? <Folder size={11} color="#fbbf24"/> : <FileText size={11} color="rgba(255,255,255,0.3)"/>}
+              <div className="new-item-row-light">
+                {newItem.type==='folder' ? <Folder size={11} color="#F59E0B"/> : <FileText size={11} color="rgba(255,255,255,0.3)"/>}
                 <input
                   ref={newItemRef}
                   value={newItem.name}
                   onChange={e=>setNewItem(p=>({...p,name:e.target.value}))}
                   onKeyDown={e=>{if(e.key==='Enter')handleCreateItem();if(e.key==='Escape')setNewItem({visible:false,parent:'',type:'file',name:''}); }}
                   placeholder={newItem.type==='folder'?'folder-name':'filename.ext'}
-                  style={{ flex:1,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(99,102,241,0.4)',borderRadius:4,color:'#fff',padding:'3px 6px',fontSize:'0.74rem',outline:'none',fontFamily:'Inter,sans-serif',boxSizing:'border-box',minWidth:0 }}
+                  className="new-item-input-light"
                 />
               </div>
             )}
 
             {/* File tree */}
-            <div className="tree-scroll" style={{ flex:1, overflowY:'auto', padding:'4px 4px' }}>
+            <div className="tree-scroll-light" style={{ flex:1, overflowY:'auto', padding:'4px 4px' }}>
               {rootChildren.map(([path,node]) => (
                 <TreeNode key={path} path={path} node={node} tree={fileTree} level={0}
                   activeFilePath={activeFilePath} previewFilePath={previewFilePath}
@@ -1011,13 +961,7 @@ export default function EditorPage() {
 
         {/* ══ CODE MODE LANG STRIP ══════════════════════════════════════════ */}
         {editorMode === 'code' && (
-          <div style={{
-            width:46, flexShrink:0, marginRight:6,
-            background:'rgba(6,6,18,0.7)', backdropFilter:'blur(20px)',
-            border:'1px solid rgba(255,255,255,0.06)', borderRadius:12,
-            display:'flex', flexDirection:'column', alignItems:'center',
-            padding:'8px 0', gap:3, overflowY:'auto',
-          }}>
+          <div className="lang-strip-light">
             {LANGUAGES.map(l => {
               const active = l.key === selectedLang;
               return (
@@ -1027,10 +971,9 @@ export default function EditorPage() {
                     width:32, height:32, borderRadius:7,
                     cursor:canEdit?'pointer':'default',
                     background: active ? l.bg : 'transparent',
-                    border:`1px solid ${active ? `${l.color}44` : 'transparent'}`,
+                    border:`1px solid ${active ? `${l.color}55` : 'transparent'}`,
                     display:'flex', alignItems:'center', justifyContent:'center',
-                    fontSize:'0.65rem', color:'white', transition:'all 0.15s',
-                    boxShadow: active ? `0 0 12px ${l.color}33` : 'none',
+                    fontSize:'0.65rem', transition:'all 0.15s',
                   }}
                   onMouseEnter={e=>{if(!active)e.currentTarget.style.background='rgba(255,255,255,0.06)';}}
                   onMouseLeave={e=>{if(!active)e.currentTarget.style.background='transparent';}}>
@@ -1042,27 +985,21 @@ export default function EditorPage() {
         )}
 
         {/* ══ EDITOR PANEL ═════════════════════════════════════════════════ */}
-        <div style={{
-          flex:`0 0 calc((100% - ${sidebarW + 14}px) * ${splitPct/100})`,
-          display:'flex', flexDirection:'column', borderRadius:12, overflow:'hidden',
-          border:'1px solid rgba(255,255,255,0.07)',
-          background:'rgba(6,6,15,0.85)', backdropFilter:'blur(20px)',
-          minWidth:0,
-        }}>
+        <div className="editor-panel-light" style={{ flex:`0 0 calc((100% - ${sidebarW + 14}px) * ${splitPct/100})` }}>
           {/* Tab bar */}
-          <div style={{ display:'flex', alignItems:'center', background:'rgba(0,0,0,0.3)', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, height:36 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:7, padding:'0 16px', height:'100%', borderBottom:`2px solid ${editorMode==='code'?currentLangDef.color:'#6366f1'}`, color:'#fff', fontSize:'0.75rem', fontWeight:600, fontFamily:'Inter,sans-serif' }}>
+          <div className="editor-tab-bar-light">
+            <div className={`editor-tab-light ${editorMode}`} style={{ borderBottomColor: editorMode==='code' ? currentLangDef.color : '#3B82F6' }}>
               {editorMode === 'web' ? (
                 <>
                   {activeFileNode && <FileIcon name={activeFileNode.name} size={12}/>}
-                  {dirPart && <span style={{ color:'rgba(255,255,255,0.3)', fontSize:'0.68rem' }}>{dirPart} /&nbsp;</span>}
+                  {dirPart && <span style={{ color:'rgba(255,255,255,0.28)', fontSize:'0.68rem' }}>{dirPart} /&nbsp;</span>}
                   <span>{fileName}</span>
                 </>
               ) : (
                 <>
                   <span style={{ fontSize:'0.82rem', lineHeight:1 }}>{currentLangDef.icon}</span>
                   <span>main.{currentLangDef.ext}</span>
-                  <span style={{ fontSize:'0.62rem', color:currentLangDef.color, background:currentLangDef.bg, padding:'1px 6px', borderRadius:99, border:`1px solid ${currentLangDef.color}33` }}>
+                  <span style={{ fontSize:'0.62rem', color:currentLangDef.color, background:currentLangDef.bg, padding:'1px 6px', borderRadius:99, border:`1px solid ${currentLangDef.color}44` }}>
                     {currentLangDef.label}
                   </span>
                 </>
@@ -1073,7 +1010,7 @@ export default function EditorPage() {
               <motion.button
                 whileHover={{ scale:1.05 }} whileTap={{ scale:0.95 }}
                 onClick={handleRunCode} disabled={isRunning}
-                style={{ display:'flex', alignItems:'center', gap:5, margin:'0 10px', padding:'3px 12px', borderRadius:6, border:`1px solid rgba(34,197,94,${isRunning?0.2:0.4})`, background:isRunning?'rgba(34,197,94,0.05)':'rgba(34,197,94,0.12)', color:'#4ade80', fontWeight:700, fontSize:'0.72rem', fontFamily:'Inter,sans-serif', cursor:isRunning?'not-allowed':'pointer', transition:'all 0.15s' }}>
+                className="run-btn-light">
                 {isRunning
                   ? <span style={{ display:'inline-block', animation:'spin 0.8s linear infinite' }}>↻</span>
                   : <Play size={10} fill="currentColor"/>}
@@ -1113,34 +1050,30 @@ export default function EditorPage() {
         </div>
 
         {/* ══ DRAG HANDLE ══════════════════════════════════════════════════ */}
-        <div onMouseDown={onDragStart}
-          style={{ width:8, flexShrink:0, cursor:'col-resize', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10 }}>
-          <div style={{ width:2, height:40, borderRadius:2, background:'rgba(255,255,255,0.08)', transition:'background 0.2s' }}
-            onMouseEnter={e=>e.currentTarget.style.background='rgba(99,102,241,0.7)'}
-            onMouseLeave={e=>e.currentTarget.style.background='rgba(255,255,255,0.08)'}/>
+        <div onMouseDown={onDragStart} className="drag-handle-light">
+          <div className="drag-handle-bar-light"
+            onMouseEnter={e=>e.currentTarget.style.background='#3B82F6'}
+            onMouseLeave={e=>e.currentTarget.style.background='rgba(255,255,255,0.07)'}/>
         </div>
 
         {/* ══ RIGHT PANEL ══════════════════════════════════════════════════ */}
-        <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', borderRadius:12, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', background:'rgba(6,6,15,0.85)', backdropFilter:'blur(20px)' }}>
+        <div className="right-panel-light">
           {editorMode === 'web' ? (
             <>
               {/* Preview bar */}
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 14px', height:36, background:'rgba(0,0,0,0.3)', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0 }}>
+              <div className="preview-bar-light">
                 <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                   {['#ff5f57','#febc2e','#28c840'].map(c => <span key={c} style={{ width:8,height:8,borderRadius:'50%',background:c,display:'inline-block' }}/>)}
-                  <div style={{ marginLeft:8, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:5, padding:'2px 10px', fontSize:'0.68rem', color:'rgba(255,255,255,0.35)', display:'flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
+                  <div className="preview-url-chip-light" style={{ marginLeft:8 }}>
                     <Globe size={9}/> {previewFilePath}
                   </div>
                 </div>
-                <button onClick={refreshPreview}
-                  style={{ background:'transparent',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontSize:'0.68rem',padding:'3px 6px',borderRadius:4,fontFamily:'Inter,sans-serif',transition:'color 0.15s' }}
-                  onMouseEnter={e=>e.currentTarget.style.color='#fff'}
-                  onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.3)'}>
+                <button onClick={refreshPreview} className="refresh-btn-light">
                   <RefreshCw size={11}/> Refresh
                 </button>
               </div>
               <iframe srcDoc={srcDoc} title="Live Preview" sandbox="allow-scripts allow-same-origin"
-                style={{ flex:1,border:'none',background:'#fff',width:'100%' }}/>
+                style={{ flex:1,border:'none',background:'#fafafa',width:'100%' }}/>
             </>
           ) : (
             <OutputPanel
