@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -6,6 +6,7 @@ import {
   AlertCircle, Zap, Users, Terminal, Globe, Shield,
   ArrowRight, RefreshCw, Copy, Check,
   GitBranch, Play, Cpu, ArrowUpRight,
+  Menu, X, Mail, Phone,
 } from 'lucide-react';
 import '../index.css';
 
@@ -156,20 +157,25 @@ function CollabDemo() {
 
 // ── Navbar ────────────────────────────────────────────────────────────────────
 function Navbar() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <nav className="lp-nav">
       <a href="/" className="lp-nav-logo">
-        <Code2 size={15} color="#3B82F6" />
+        <Code2 size={16} color="#3B82F6" />
         CollabCode
       </a>
+
+      {/* Desktop navigation links */}
       <div className="lp-nav-links">
         <a href="#features" className="lp-nav-link">Features</a>
         <a href="#architecture" className="lp-nav-link">Architecture</a>
         <a href="#tech" className="lp-nav-link">Stack</a>
       </div>
+
       <div className="lp-nav-actions">
         <a
-          href="https://github.com"
+          href="https://github.com/ashcodes2/CollabCode-3D"
           target="_blank"
           rel="noopener noreferrer"
           className="btn-ghost"
@@ -178,7 +184,78 @@ function Navbar() {
           GitHub
           <ArrowUpRight size={11} />
         </a>
+
+        {/* Mobile menu toggle button */}
+        <button
+          onClick={() => setMobileMenuOpen(o => !o)}
+          className="lp-nav-mobile-toggle"
+          aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+        >
+          {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+        </button>
       </div>
+
+      {/* Responsive mobile menu drawer */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18 }}
+            className="lp-nav-mobile-menu"
+          >
+            <a
+              href="#features"
+              onClick={() => setMobileMenuOpen(false)}
+              className="lp-mobile-nav-link"
+            >
+              <Zap size={14} color="#3B82F6" /> Features
+            </a>
+            <a
+              href="#architecture"
+              onClick={() => setMobileMenuOpen(false)}
+              className="lp-mobile-nav-link"
+            >
+              <Cpu size={14} color="#3B82F6" /> Architecture
+            </a>
+            <a
+              href="#tech"
+              onClick={() => setMobileMenuOpen(false)}
+              className="lp-mobile-nav-link"
+            >
+              <Terminal size={14} color="#3B82F6" /> Technology Stack
+            </a>
+
+            <div style={{ height: 1, background: 'var(--border-dim)', margin: '6px 0' }} />
+
+            <a
+              href="mailto:support@collabcode.dev"
+              className="lp-mobile-nav-link"
+            >
+              <Mail size={14} color="#9B9BAA" /> support@collabcode.dev
+            </a>
+            <a
+              href="tel:+18005550199"
+              className="lp-mobile-nav-link"
+            >
+              <Phone size={14} color="#9B9BAA" /> +1 (800) 555-0199
+            </a>
+
+            <a
+              href="https://github.com/ashcodes2/CollabCode-3D"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost"
+              style={{ justifyContent: 'center', marginTop: 6 }}
+            >
+              <GitBranch size={13} />
+              GitHub Repository
+              <ArrowUpRight size={12} />
+            </a>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </nav>
   );
 }
@@ -193,21 +270,46 @@ const fadeUp = {
 export default function LandingPage() {
   const navigate = useNavigate();
 
-  // ── State (100% unchanged from original) ────────────────────────────────────
+  // ── SEO Head metadata ───────────────────────────────────────────────────────
+  useEffect(() => {
+    document.title = 'CollabCode — Real-Time Collaborative Cloud IDE';
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) {
+      metaDesc.setAttribute(
+        'content',
+        'CollabCode is a fast, browser-based collaborative code editor powered by Yjs CRDT real-time sync, Monaco editor, 19-language cloud sandboxing, and instant live web preview.'
+      );
+    }
+  }, []);
+
+  // ── State ───────────────────────────────────────────────────────────────────
   const [tab,            setTab]            = useState('create');
   const [createRoomId,   setCreateRoomId]   = useState(() => generateRoomId());
   const [createPassword, setCreatePassword] = useState('');
   const [showCreatePass, setShowCreatePass] = useState(false);
+  const [createError,    setCreateError]    = useState('');
   const [joinRoomId,     setJoinRoomId]     = useState('');
   const [joinPassword,   setJoinPassword]   = useState('');
   const [showJoinPass,   setShowJoinPass]   = useState(false);
   const [joinError,      setJoinError]      = useState('');
   const [copiedId,       setCopiedId]       = useState(false);
 
-  // ── Handlers (100% unchanged from original) ──────────────────────────────────
+  // ── Handlers ────────────────────────────────────────────────────────────────
   const handleCreate = () => {
     const rid = createRoomId.trim().toUpperCase();
-    if (!rid) return;
+    if (!rid) {
+      setCreateError('Please enter a Room ID or click "New" to generate one.');
+      return;
+    }
+    if (rid.length < 3) {
+      setCreateError('Room ID must be at least 3 characters long.');
+      return;
+    }
+    if (!/^[A-Z0-9_-]+$/.test(rid)) {
+      setCreateError('Room ID can only contain letters, numbers, hyphens, and underscores.');
+      return;
+    }
+    setCreateError('');
     if (createPassword.trim()) {
       localStorage.setItem(`room_pass_${rid}`, createPassword.trim());
     } else {
@@ -219,7 +321,14 @@ export default function LandingPage() {
 
   const handleJoin = () => {
     const rid = joinRoomId.trim().toUpperCase();
-    if (!rid) { setJoinError('Please enter a Room ID.'); return; }
+    if (!rid) {
+      setJoinError('Please enter a Room ID.');
+      return;
+    }
+    if (rid.length < 3) {
+      setJoinError('Room ID must be at least 3 characters long.');
+      return;
+    }
     setJoinError('');
     const storedPass = localStorage.getItem(`room_pass_${rid}`);
     if (!storedPass) {
@@ -235,9 +344,13 @@ export default function LandingPage() {
   };
 
   const copyRoomId = async () => {
-    await navigator.clipboard.writeText(createRoomId);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
+    try {
+      await navigator.clipboard.writeText(createRoomId);
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 2000);
+    } catch {
+      setCreateError('Could not access clipboard. Please copy manually.');
+    }
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -403,6 +516,13 @@ export default function LandingPage() {
                     <p className="lp-help-text">Without a password, anyone can edit this room.</p>
                   )}
                 </div>
+
+                {createError && (
+                  <div className="lp-error">
+                    <AlertCircle size={13} />
+                    {createError}
+                  </div>
+                )}
 
                 <motion.button
                   className="lp-cta-btn"
@@ -664,14 +784,25 @@ export default function LandingPage() {
       <footer style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
         <div className="lp-footer-inner">
           <a href="/" className="lp-footer-logo">
-            <Code2 size={13} color="#3B82F6" />
+            <Code2 size={14} color="#3B82F6" />
             CollabCode
           </a>
-          <span className="lp-footer-copy">Open source collaborative IDE</span>
+          <div className="lp-footer-contact">
+            <a href="mailto:support@collabcode.dev" className="lp-footer-link" title="Contact Email">
+              <Mail size={12} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
+              support@collabcode.dev
+            </a>
+            <span style={{ color: 'var(--border-strong)', margin: '0 6px' }}>•</span>
+            <a href="tel:+18005550199" className="lp-footer-link" title="Helpline Phone">
+              <Phone size={12} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
+              +1 (800) 555-0199
+            </a>
+          </div>
           <div className="lp-footer-links">
-            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="lp-footer-link">GitHub</a>
+            <a href="https://github.com/ashcodes2/CollabCode-3D" target="_blank" rel="noopener noreferrer" className="lp-footer-link">GitHub</a>
             <a href="#features" className="lp-footer-link">Features</a>
             <a href="#architecture" className="lp-footer-link">Architecture</a>
+            <a href="#tech" className="lp-footer-link">Stack</a>
           </div>
         </div>
       </footer>

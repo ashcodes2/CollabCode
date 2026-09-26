@@ -443,10 +443,16 @@ function OutputPanel({ output, isRunning, onRun, stdin, onStdinChange, cpuTime, 
 
       {/* ── Output area ── */}
       <div className="output-scroll-light">
-        {!output && !isRunning && (
+        {output === null && !isRunning && (
           <div style={{ color:'rgba(255,255,255,0.3)', fontSize:'0.78rem', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:8, marginTop:4 }}>
             <Zap size={13} color="rgba(255,255,255,0.15)"/>
             Click <strong style={{ color:'#22C55E', margin:'0 4px' }}>Run Code</strong> to execute your program
+          </div>
+        )}
+        {output !== null && output.trim() === '' && !isRunning && (
+          <div style={{ color:'rgba(255,255,255,0.45)', fontSize:'0.75rem', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:6, marginTop:4 }}>
+            <Check size={12} color="#22C55E"/>
+            <span>Program finished with exit code 0 (no stdout output)</span>
           </div>
         )}
         {isRunning && (
@@ -455,7 +461,7 @@ function OutputPanel({ output, isRunning, onRun, stdin, onStdinChange, cpuTime, 
             Executing on JDoodle sandbox…
           </div>
         )}
-        {output && !isRunning && (
+        {output && output.trim() !== '' && !isRunning && (
           <pre style={{ color:'rgba(255,255,255,0.82)', whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0, lineHeight:1.65, fontSize:'12.5px', fontFamily:"'JetBrains Mono',monospace" }}>
             {output}
           </pre>
@@ -575,9 +581,23 @@ export default function EditorPage() {
   const containerRef = useRef(null);
   const SIDEBAR_W = 200;
 
-  // ── Misc (UNCHANGED) ─────────────────────────────────────────────────────
+  // ── Misc ─────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false);
   const [srcDoc,  setSrcDoc]  = useState('');
+  const [mobileTab, setMobileTab] = useState('editor'); // 'editor' | 'output'
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // ── SEO Page Meta ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    document.title = roomId ? `Room ${roomId} — CollabCode IDE` : 'CollabCode IDE — Real-Time Editor';
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) {
+      metaDesc.setAttribute(
+        'content',
+        `Live collaborative code editor session in room ${roomId}. Write, sync, and execute code in real-time across 19 languages.`
+      );
+    }
+  }, [roomId]);
 
   // ── Live preview (UNCHANGED) ──────────────────────────────────────────────
   useEffect(() => {
@@ -719,19 +739,36 @@ export default function EditorPage() {
     socketRef.current?.emit('mode-change', roomId, { mode, lang:selectedLang });
   }, [roomId, selectedLang]);
 
-  // ── Run code (UNCHANGED) ──────────────────────────────────────────────────
+  // ── Run code ──────────────────────────────────────────────────────────────
   const handleRunCode = useCallback(async () => {
     if (isRunning) return;
-    setIsRunning(true); setCodeOutput(null); setRunMeta({cpuTime:null,memory:null});
+    setIsRunning(true);
+    setCodeOutput(null);
+    setRunMeta({ cpuTime:null, memory:null });
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-      const res = await fetch(`${backendUrl}/api/execute`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({language:selectedLang,sourceCode:codeContent,stdin:stdinValue}) });
+      const res = await fetch(`${backendUrl}/api/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({ language:selectedLang, sourceCode:codeContent, stdin:stdinValue })
+      });
       const data = await res.json();
-      setCodeOutput(data.run?.output ?? 'No output.');
-      setRunMeta({ cpuTime:data.run?.cpuTime??null, memory:data.run?.memory??null });
-    } catch(err) { setCodeOutput(`❌ Network error: ${err.message}`); }
-    finally { setIsRunning(false); }
-  }, [isRunning, selectedLang, codeContent, stdinValue]);
+      if (!res.ok || data.error) {
+        setCodeOutput(`❌ Execution failed: ${data.error || res.statusText || 'Unable to execute code.'}`);
+        addToast(`Execution error: ${data.error || 'Failed to run code'}`, 'error');
+      } else {
+        const out = data.run?.output;
+        setCodeOutput(out !== undefined && out !== null && out !== '' ? out : 'Program executed successfully with no stdout output.');
+        setRunMeta({ cpuTime:data.run?.cpuTime ?? null, memory:data.run?.memory ?? null });
+        addToast('Code executed successfully', 'success');
+      }
+    } catch(err) {
+      setCodeOutput(`❌ Network error: Could not reach execution server (${err.message}). Make sure the backend server is running.`);
+      addToast('Network error: server unreachable', 'error');
+    } finally {
+      setIsRunning(false);
+    }
+  }, [isRunning, selectedLang, codeContent, stdinValue, addToast]);
 
   // ── File tree operations (UNCHANGED) ──────────────────────────────────────
   const handleFileClick  = useCallback(path => setActiveFilePath(path), []);
@@ -794,8 +831,17 @@ export default function EditorPage() {
     return () => { window.removeEventListener('mousemove',onMove); window.removeEventListener('mouseup',onUp); };
   }, []);
 
-  // ── Misc (UNCHANGED) ─────────────────────────────────────────────────────
-  const copyRoomId = async () => { await navigator.clipboard.writeText(roomId); setCopied(true); setTimeout(()=>setCopied(false),2000); };
+  // ── Misc ─────────────────────────────────────────────────────────────────
+  const copyRoomId = async () => {
+    try {
+      await navigator.clipboard.writeText(roomId);
+      setCopied(true);
+      addToast('Room ID copied to clipboard!', 'success');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      addToast('Could not access clipboard. Please copy manually.', 'error');
+    }
+  };
   const refreshPreview = () => { setSrcDoc(''); setTimeout(()=>setSrcDoc(buildSrcDoc(fileTree,previewFilePath)),60); };
 
   const activeFileNode  = editorMode==='web' ? fileTree[activeFilePath] : null;
@@ -844,6 +890,31 @@ export default function EditorPage() {
         {editorMode === 'code' && (
           <LanguageSelector currentLang={selectedLang} onChange={handleLangChange} disabled={!canEdit} />
         )}
+
+        {/* Mobile View Switcher (visible on mobile <= 768px) */}
+        <div className="mobile-editor-tabs">
+          {editorMode === 'web' && (
+            <button
+              onClick={() => setMobileSidebarOpen(o => !o)}
+              className={`mobile-tab-btn ${mobileSidebarOpen ? 'active' : ''}`}
+              title="Toggle File Explorer"
+            >
+              <FolderOpen size={11} /> Files
+            </button>
+          )}
+          <button
+            className={`mobile-tab-btn ${mobileTab === 'editor' ? 'active' : ''}`}
+            onClick={() => { setMobileTab('editor'); setMobileSidebarOpen(false); }}
+          >
+            Code
+          </button>
+          <button
+            className={`mobile-tab-btn ${mobileTab === 'output' ? 'active' : ''}`}
+            onClick={() => { setMobileTab('output'); setMobileSidebarOpen(false); }}
+          >
+            {editorMode === 'web' ? 'Preview' : 'Output'}
+          </button>
+        </div>
 
         <div style={{ flex:1 }}/>
 
@@ -914,7 +985,7 @@ export default function EditorPage() {
 
         {/* ══ WEB MODE SIDEBAR ══════════════════════════════════════════════ */}
         {editorMode === 'web' && (
-          <div className="sidebar-light">
+          <div className={`sidebar-light${mobileSidebarOpen ? ' mobile-open' : ''}`}>
             {/* Sidebar header */}
             <div className="sidebar-header-light">
               <span>Explorer</span>
@@ -947,14 +1018,22 @@ export default function EditorPage() {
 
             {/* File tree */}
             <div className="tree-scroll-light" style={{ flex:1, overflowY:'auto', padding:'4px 4px' }}>
-              {rootChildren.map(([path,node]) => (
-                <TreeNode key={path} path={path} node={node} tree={fileTree} level={0}
-                  activeFilePath={activeFilePath} previewFilePath={previewFilePath}
-                  onFileClick={handleFileClick} onSetPreview={handleSetPreview} onDelete={handleDeleteItem}
-                  expandedFolders={expandedFolders} toggleFolder={toggleFolder}
-                  onAddFile={p=>openNewItemForm('file',p)} onAddFolder={p=>openNewItemForm('folder',p)}
-                />
-              ))}
+              {rootChildren.length === 0 ? (
+                <div style={{ padding: '28px 12px', textAlign: 'center', color: 'rgba(255,255,255,0.32)', fontSize: '0.74rem' }}>
+                  <FolderOpen size={22} style={{ opacity: 0.35, margin: '0 auto 8px', display: 'block' }} />
+                  <div style={{ fontWeight: 500 }}>No files yet</div>
+                  <div style={{ fontSize: '0.67rem', opacity: 0.7, marginTop: 4 }}>Click + to create a file or folder</div>
+                </div>
+              ) : (
+                rootChildren.map(([path,node]) => (
+                  <TreeNode key={path} path={path} node={node} tree={fileTree} level={0}
+                    activeFilePath={activeFilePath} previewFilePath={previewFilePath}
+                    onFileClick={handleFileClick} onSetPreview={handleSetPreview} onDelete={handleDeleteItem}
+                    expandedFolders={expandedFolders} toggleFolder={toggleFolder}
+                    onAddFile={p=>openNewItemForm('file',p)} onAddFolder={p=>openNewItemForm('folder',p)}
+                  />
+                ))
+              )}
             </div>
           </div>
         )}
@@ -985,7 +1064,7 @@ export default function EditorPage() {
         )}
 
         {/* ══ EDITOR PANEL ═════════════════════════════════════════════════ */}
-        <div className="editor-panel-light" style={{ flex:`0 0 calc((100% - ${sidebarW + 14}px) * ${splitPct/100})` }}>
+        <div className={`editor-panel-light ${mobileTab !== 'editor' ? 'mobile-hidden' : ''}`} style={{ flex:`0 0 calc((100% - ${sidebarW + 14}px) * ${splitPct/100})` }}>
           {/* Tab bar */}
           <div className="editor-tab-bar-light">
             <div className={`editor-tab-light ${editorMode}`} style={{ borderBottomColor: editorMode==='code' ? currentLangDef.color : '#3B82F6' }}>
@@ -1057,7 +1136,7 @@ export default function EditorPage() {
         </div>
 
         {/* ══ RIGHT PANEL ══════════════════════════════════════════════════ */}
-        <div className="right-panel-light">
+        <div className={`right-panel-light ${mobileTab !== 'output' ? 'mobile-hidden' : ''}`}>
           {editorMode === 'web' ? (
             <>
               {/* Preview bar */}
