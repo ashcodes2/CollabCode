@@ -11,15 +11,19 @@ const verifyToken = (req, res, next) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ message: 'Database service is currently unavailable' });
   }
-  const token = req.header('Authorization')?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'Access denied' });
+  const authHeader = req.header('Authorization');
+  const token = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7).trim()
+    : authHeader?.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'Access denied. No token provided.' });
 
   try {
     const verified = jwt.verify(token, JWT_SECRET);
     req.user = verified;
     next();
   } catch (error) {
-    res.status(400).json({ message: 'Invalid token' });
+    res.status(401).json({ message: 'Invalid or expired token.' });
   }
 };
 
@@ -36,25 +40,37 @@ router.get('/', verifyToken, async (req, res) => {
 // Create or update a project snippet
 router.post('/save', verifyToken, async (req, res) => {
   try {
-    const { title, content, language, roomId } = req.body;
-    
-    let project = await Project.findOne({ roomId });
+    const { title, content, language, roomId } = req.body || {};
+
+    if (typeof roomId !== 'string' || !roomId.trim()) {
+      return res.status(400).json({ message: 'Valid roomId is required' });
+    }
+
+    const cleanRoomId = roomId.trim();
+    const cleanTitle = typeof title === 'string' && title.trim() ? title.trim().slice(0, 100) : 'Untitled Snippet';
+    const cleanContent = typeof content === 'string' ? content.slice(0, 500000) : '';
+    const cleanLang = typeof language === 'string' ? language.trim().slice(0, 30) : 'javascript';
+
+    let project = await Project.findOne({ roomId: cleanRoomId });
     if (project) {
-      // Ensure owner matches, or allow anyone in room? For now, owner only.
       if (project.owner.toString() !== req.user.id) {
-        return res.status(403).json({ message: 'Not authorized to save this project' });
+        return res.status(403).json({ message: 'Not authorized to save to this project' });
       }
-      project.title = title;
-      project.content = content;
-      project.language = language;
+      project.title = cleanTitle;
+      project.content = cleanContent;
+      project.language = cleanLang;
       await project.save();
     } else {
       project = new Project({
-        title, content, language, roomId, owner: req.user.id
+        title: cleanTitle,
+        content: cleanContent,
+        language: cleanLang,
+        roomId: cleanRoomId,
+        owner: req.user.id,
       });
       await project.save();
     }
-    
+
     res.json(project);
   } catch (error) {
     res.status(500).json({ error: error.message });

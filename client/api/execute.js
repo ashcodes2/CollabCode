@@ -25,8 +25,11 @@ const LANGUAGE_MAP = {
   sql:         { language: 'sql',           versionIndex: '4' },  // SQLite
 };
 
+const MAX_SOURCE_LEN = 100 * 1024;
+const MAX_STDIN_LEN  = 10 * 1024;
+
 export default async function handler(req, res) {
-  // Enable CORS
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -41,9 +44,33 @@ export default async function handler(req, res) {
 
   const { language, sourceCode, stdin = '' } = req.body || {};
 
-  const lang = LANGUAGE_MAP[language];
+  if (!language || typeof language !== 'string') {
+    return res.status(400).json({ run: { output: '❌ Missing or invalid language parameter.' } });
+  }
+
+  if (typeof sourceCode !== 'string') {
+    return res.status(400).json({ run: { output: '❌ Missing or invalid sourceCode parameter.' } });
+  }
+
+  if (typeof stdin !== 'string') {
+    return res.status(400).json({ run: { output: '❌ stdin must be a string.' } });
+  }
+
+  if (sourceCode.length > MAX_SOURCE_LEN) {
+    return res.status(400).json({
+      run: { output: `❌ Source code exceeds maximum allowed size (${MAX_SOURCE_LEN / 1024} KB).` },
+    });
+  }
+
+  if (stdin.length > MAX_STDIN_LEN) {
+    return res.status(400).json({
+      run: { output: `❌ Stdin exceeds maximum allowed size (${MAX_STDIN_LEN / 1024} KB).` },
+    });
+  }
+
+  const lang = LANGUAGE_MAP[language.toLowerCase()];
   if (!lang) {
-    return res.status(200).json({
+    return res.status(400).json({
       run: {
         output: `❌ Language '${language}' is not supported.\n\nSupported: ${Object.keys(LANGUAGE_MAP).join(', ')}`,
       },
@@ -54,11 +81,11 @@ export default async function handler(req, res) {
   const clientSecret = (process.env.JDOODLE_CLIENT_SECRET || '').trim();
 
   if (!clientId || !clientSecret || clientId === 'your_jdoodle_client_id_here') {
-    return res.status(200).json({
+    return res.status(503).json({
       run: {
         output:
-          'ERROR: JDoodle credentials not configured.\n' +
-          'Please configure JDOODLE_CLIENT_ID and JDOODLE_CLIENT_SECRET in the deployment environment.',
+          '⚠️ JDoodle compiler credentials are not configured.\n' +
+          'Please set valid JDOODLE_CLIENT_ID and JDOODLE_CLIENT_SECRET environment variables.',
       },
     });
   }
@@ -75,21 +102,34 @@ export default async function handler(req, res) {
         language: lang.language,
         versionIndex: lang.versionIndex,
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(20000),
     });
 
     const data = await jdoodleRes.json();
-    const output = data.output || 'Execution finished with no output.';
-    const cpuTime = data.cpuTime || '?';
-    const memory = data.memory || '?';
+
+    if (data.error) {
+      return res.status(200).json({
+        run: {
+          output: `⚠️ Execution Notice: ${data.error} (Status ${data.statusCode || 429}).\n` +
+                  'The JDoodle sandbox compiler returned an error or the daily execution quota has been reached.',
+          cpuTime: null,
+          memory: null,
+        },
+      });
+    }
+
+    const output  = data.output ?? 'Program executed successfully with no stdout output.';
+    const cpuTime = data.cpuTime ? `${data.cpuTime}s` : null;
+    const memory  = data.memory ? `${data.memory}KB` : null;
 
     return res.status(200).json({ run: { output, cpuTime, memory } });
-  } catch (error) {
-    console.error('Execution handler error:', error.message);
-    const errMsg = error.name === 'TimeoutError'
-      ? 'Execution timed out after 30 seconds.'
-      : `Execution failed: ${error.message}`;
 
-    return res.status(200).json({ run: { output: errMsg } });
+  } catch (error) {
+    const isTimeout = error.name === 'TimeoutError' || error.message?.includes('timeout');
+    const errMsg = isTimeout
+      ? '⏱️ Execution timed out after 20 seconds. Infinite loop or slow program execution prevented completion.'
+      : `❌ Execution failed: ${error.message}`;
+
+    return res.status(200).json({ run: { output: errMsg, cpuTime: null, memory: null } });
   }
 }

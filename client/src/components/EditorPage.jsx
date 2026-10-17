@@ -540,6 +540,11 @@ export default function EditorPage() {
     if (!r) { r = Math.random().toString(36).substring(2,9).toUpperCase(); window.history.replaceState(null,'',`?room=${r}`); }
     return r;
   });
+  const [adminToken] = useState(() => {
+    const key = `collab_admin_token_${roomId}`;
+    return localStorage.getItem(key) || null;
+  });
+
   const [canEdit,            setCanEdit]            = useState(() => { const rid=new URLSearchParams(window.location.search).get('room')??''; return sessionStorage.getItem(`can_edit_${rid}`) === 'true'; });
   const [isAdmin,            setIsAdmin]            = useState(false);
   const [editRequestPending, setEditRequestPending] = useState(false);
@@ -571,9 +576,11 @@ export default function EditorPage() {
   const [newItem,         setNewItem]         = useState({ visible:false, parent:'', type:'file', name:'' });
   const newItemRef = useRef(null);
 
-  // ── Yjs / Socket refs (UNCHANGED) ────────────────────────────────────────
+  // ── Yjs / Socket refs ────────────────────────────────────────────────────
   const yjsDocs  = useRef(new Map());
   const socketRef = useRef(null);
+  const isApplyingRemote = useRef(false);
+  const editorRef = useRef(null);
 
   // ── Layout (UNCHANGED) ───────────────────────────────────────────────────
   const [splitPct, setSplitPct] = useState(55);
@@ -607,20 +614,19 @@ export default function EditorPage() {
     return () => clearTimeout(t);
   }, [fileTree, previewFilePath, editorMode]);
 
-  // ── Socket.io + Yjs bootstrap (UNCHANGED) ─────────────────────────────────
+  // ── Socket.io + Yjs bootstrap ─────────────────────────────────────────────
   useEffect(() => {
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const configuredBackend = import.meta.env.VITE_BACKEND_URL;
     const socketEndpoint = configuredBackend || (isLocal ? 'http://localhost:3001' : null);
 
     if (!socketEndpoint) {
-      setIsConnected(false);
       return;
     }
 
     const socket = io(socketEndpoint, {
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
+      reconnectionAttempts: 15,
+      reconnectionDelay: 1500,
       timeout: 10000,
     });
     socketRef.current = socket;
@@ -628,7 +634,7 @@ export default function EditorPage() {
 
     socket.on('connect', () => {
       setIsConnected(true);
-      socket.emit('join-room', roomId);
+      socket.emit('join-room', { roomId, adminToken });
     });
 
     socket.on('disconnect', () => {
@@ -639,10 +645,18 @@ export default function EditorPage() {
       setIsConnected(false);
     });
 
-    socket.on('room-role', ({ isAdmin: f }) => {
+    socket.on('room-role', ({ isAdmin: f, canEdit: ce, adminToken: returnedToken }) => {
       setIsAdmin(f);
-      if (f) { setCanEdit(true); sessionStorage.setItem(`can_edit_${roomId}`, 'true'); }
-      else   { setCanEdit(false); sessionStorage.removeItem(`can_edit_${roomId}`); }
+      const isAllowed = f || Boolean(ce);
+      setCanEdit(isAllowed);
+      if (returnedToken) {
+        localStorage.setItem(`collab_admin_token_${roomId}`, returnedToken);
+      }
+      if (isAllowed) {
+        sessionStorage.setItem(`can_edit_${roomId}`, 'true');
+      } else {
+        sessionStorage.removeItem(`can_edit_${roomId}`);
+      }
     });
 
     socket.on('sync-step-1', ({ fileName, update }) => {
@@ -650,20 +664,30 @@ export default function EditorPage() {
       if (!yjsDocs.current.has(fileName)) yjsDocs.current.set(fileName, new Y.Doc());
       const doc = yjsDocs.current.get(fileName);
       try {
+        isApplyingRemote.current = true;
         Y.applyUpdate(doc, new Uint8Array(update));
         const newValue = doc.getText('content').toString();
         if (newValue) {
           if (fileName.startsWith('__code__/')) {
             const ext = fileName.split('.').pop();
             const langKey = LANGUAGES.find(l => l.ext === ext)?.key ?? 'javascript';
-            setSelectedLang(langKey); setCodeContent(newValue);
+            setSelectedLang(langKey);
+            setCodeContent(newValue);
           }
           setFileTree(prev => {
-            if (!prev[fileName]) { const name=fileName.split('/').pop(); return {...prev,[fileName]:{type:'file',name,language:inferLanguage(name),value:newValue}}; }
-            return {...prev,[fileName]:{...prev[fileName],value:newValue}};
+            if (!prev[fileName]) {
+              const name = fileName.split('/').pop();
+              return { ...prev, [fileName]: { type:'file', name, language:inferLanguage(name), value:newValue } };
+            }
+            if (prev[fileName].value === newValue) return prev;
+            return { ...prev, [fileName]: { ...prev[fileName], value:newValue } };
           });
         }
-      } catch { /* intentionally swallow Yjs applyUpdate errors on malformed packets */ }
+      } catch (err) {
+        console.error('sync-step-1 applyUpdate error:', err);
+      } finally {
+        setTimeout(() => { isApplyingRemote.current = false; }, 30);
+      }
     });
 
     socket.on('sync-update', ({ fileName, update }) => {
@@ -671,83 +695,178 @@ export default function EditorPage() {
       if (!yjsDocs.current.has(fileName)) yjsDocs.current.set(fileName, new Y.Doc());
       const doc = yjsDocs.current.get(fileName);
       try {
+        isApplyingRemote.current = true;
+        const editor = editorRef.current;
+        const isCurrentActive = (editorMode === 'code' && fileName.startsWith('__code__/')) || (editorMode === 'web' && fileName === activeFilePath);
+        const savedPos = (editor && isCurrentActive && editor.hasTextFocus()) ? editor.getPosition() : null;
+
         Y.applyUpdate(doc, new Uint8Array(update));
         const newValue = doc.getText('content').toString();
         if (fileName.startsWith('__code__/')) {
           const ext = fileName.split('.').pop();
           const langKey = LANGUAGES.find(l => l.ext === ext)?.key ?? 'javascript';
-          setSelectedLang(langKey); setCodeContent(newValue);
+          setSelectedLang(langKey);
+          setCodeContent(newValue);
         }
         setFileTree(prev => {
-          if (!prev[fileName]) { const name=fileName.split('/').pop(); return {...prev,[fileName]:{type:'file',name,language:inferLanguage(name),value:newValue}}; }
-          return {...prev,[fileName]:{...prev[fileName],value:newValue}};
+          if (!prev[fileName]) {
+            const name = fileName.split('/').pop();
+            return { ...prev, [fileName]: { type:'file', name, language:inferLanguage(name), value:newValue } };
+          }
+          if (prev[fileName].value === newValue) return prev;
+          return { ...prev, [fileName]: { ...prev[fileName], value:newValue } };
         });
-      } catch { /* intentionally swallow Yjs applyUpdate errors on malformed packets */ }
-    });
 
-    socket.on('tree-init', (serverTree) => {
-      Object.entries(serverTree).forEach(([p,n]) => {
-        if (n.type==='file') {
-          if (!yjsDocs.current.has(p)) {
-            const doc=new Y.Doc();
-            if (n.value) { const yText=doc.getText('content'); if(yText.length===0) doc.transact(()=>{yText.insert(0,n.value);}); }
-            yjsDocs.current.set(p, doc);
-          }
-          if (p.startsWith('__code__/') && n.value) {
-            const ext=p.split('.').pop();
-            const langKey=LANGUAGES.find(l=>l.ext===ext)?.key??'javascript';
-            setSelectedLang(langKey); setCodeContent(n.value); setEditorMode('code');
-          }
+        if (editor && savedPos && isCurrentActive) {
+          requestAnimationFrame(() => {
+            try { editor.setPosition(savedPos); } catch { /* ignore cursor restore errors */ }
+          });
         }
-      });
-      setFileTree(prev => ({...prev,...serverTree}));
-      const folders=Object.entries(serverTree).filter(([,n])=>n.type==='folder').map(([p])=>p);
-      if (folders.length) setExpandedFolders(prev=>new Set([...prev,...folders]));
-    });
-
-    socket.on('tree-change', ({ op, path, node, extraPaths }) => {
-      if (op==='add') {
-        if (node?.type==='file'&&!yjsDocs.current.has(path)) yjsDocs.current.set(path, new Y.Doc());
-        if (extraPaths) Object.entries(extraPaths).forEach(([p,n])=>{ if(n.type==='file'&&!yjsDocs.current.has(p)) yjsDocs.current.set(p,new Y.Doc()); });
-        setFileTree(prev=>({...prev,[path]:node,...(extraPaths??{})}));
-        if (node?.type==='folder') setExpandedFolders(prev=>new Set([...prev,path]));
-      } else if (op==='delete') {
-        setFileTree(prev=>{ const next={...prev}; Object.keys(next).forEach(k=>{if(k===path||k.startsWith(path+'/'))delete next[k];}); return next; });
+      } catch (err) {
+        console.error('sync-update applyUpdate error:', err);
+      } finally {
+        setTimeout(() => { isApplyingRemote.current = false; }, 30);
       }
     });
 
-    socket.on('mode-change', ({ mode, lang }) => { setEditorMode(mode); if(lang) setSelectedLang(lang); });
+    socket.on('tree-init', (serverTree) => {
+      Object.entries(serverTree).forEach(([p, n]) => {
+        if (n.type === 'file') {
+          if (!yjsDocs.current.has(p)) {
+            const doc = new Y.Doc();
+            if (n.value) {
+              const yText = doc.getText('content');
+              if (yText.length === 0) doc.transact(() => { yText.insert(0, n.value); });
+            }
+            yjsDocs.current.set(p, doc);
+          }
+          if (p.startsWith('__code__/') && n.value) {
+            const ext = p.split('.').pop();
+            const langKey = LANGUAGES.find(l => l.ext === ext)?.key ?? 'javascript';
+            setSelectedLang(langKey);
+            setCodeContent(n.value);
+            setEditorMode('code');
+          }
+        }
+      });
+      setFileTree(prev => ({ ...prev, ...serverTree }));
+      const folders = Object.entries(serverTree).filter(([, n]) => n.type === 'folder').map(([p]) => p);
+      if (folders.length) setExpandedFolders(prev => new Set([...prev, ...folders]));
+    });
 
-    socket.on('edit-request', req  => setIncomingRequests(p=>[...p,req]));
-    socket.on('edit-granted',  ()  => { setEditRequestPending(false); setCanEdit(true); sessionStorage.setItem(`can_edit_${roomId}`,'true'); addToast('✅ Edit access granted! You can now type.','success'); });
-    socket.on('edit-denied',   ()  => { setEditRequestPending(false); addToast('❌ Request denied by admin.','error'); });
+    socket.on('tree-change', ({ op, path, node, extraPaths }) => {
+      if (op === 'add') {
+        if (node?.type === 'file' && !yjsDocs.current.has(path)) yjsDocs.current.set(path, new Y.Doc());
+        if (extraPaths) {
+          Object.entries(extraPaths).forEach(([p, n]) => {
+            if (n.type === 'file' && !yjsDocs.current.has(p)) yjsDocs.current.set(p, new Y.Doc());
+          });
+        }
+        setFileTree(prev => ({ ...prev, [path]: node, ...(extraPaths ?? {}) }));
+        if (node?.type === 'folder') setExpandedFolders(prev => new Set([...prev, path]));
+      } else if (op === 'delete') {
+        setFileTree(prev => {
+          const next = { ...prev };
+          Object.keys(next).forEach(k => {
+            if (k === path || k.startsWith(path + '/')) delete next[k];
+          });
+          return next;
+        });
+      }
+    });
 
-    // Snapshot the Map reference so the cleanup can safely iterate it
-    // even if the ref has been reassigned by the time it runs.
+    socket.on('mode-change', ({ mode, lang }) => {
+      setEditorMode(mode);
+      if (lang) setSelectedLang(lang);
+    });
+
+    socket.on('edit-request', req  => setIncomingRequests(p => [...p, req]));
+    socket.on('edit-granted',  ()  => {
+      setEditRequestPending(false);
+      setCanEdit(true);
+      sessionStorage.setItem(`can_edit_${roomId}`, 'true');
+      addToast('✅ Edit access granted! You can now type.', 'success');
+    });
+    socket.on('edit-denied',   ()  => {
+      setEditRequestPending(false);
+      addToast('❌ Request denied by admin.', 'error');
+    });
+
     const docs = yjsDocs.current;
-    return () => { socket.disconnect(); docs.forEach(doc => doc.destroy()); };
+    return () => {
+      socket.disconnect();
+      docs.forEach(doc => {
+        try { doc.destroy(); } catch { /* ignore error during cleanup */ }
+      });
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
-  // ── Yjs broadcast (UNCHANGED) ────────────────────────────────────────────
-  const activeSyncKey = editorMode==='code' ? codeModeKey(selectedLang) : activeFilePath;
+  // ── Yjs broadcast ────────────────────────────────────────────────────────
+  const activeSyncKey = editorMode === 'code' ? codeModeKey(selectedLang) : activeFilePath;
 
   useEffect(() => {
     if (!yjsDocs.current.has(activeSyncKey)) yjsDocs.current.set(activeSyncKey, new Y.Doc());
     const doc = yjsDocs.current.get(activeSyncKey);
-    const onUpdate = update => { if(socketRef.current?.connected) socketRef.current.emit('sync-update',roomId,{fileName:activeSyncKey,update:Array.from(update)}); };
+    const onUpdate = update => {
+      if (socketRef.current?.connected && !isApplyingRemote.current) {
+        socketRef.current.emit('sync-update', roomId, { fileName: activeSyncKey, update: Array.from(update) });
+      }
+    };
     doc.on('update', onUpdate);
     return () => doc.off('update', onUpdate);
   }, [activeSyncKey, roomId]);
 
-  // ── Editor change (UNCHANGED) ─────────────────────────────────────────────
+  // ── Differential text helper to prevent CRDT duplicate/overwrite bugs ────
+  const applyTextDiff = useCallback((yText, newStr) => {
+    const oldStr = yText.toString();
+    if (oldStr === newStr) return;
+
+    let start = 0;
+    while (start < oldStr.length && start < newStr.length && oldStr[start] === newStr[start]) {
+      start++;
+    }
+
+    let oldEnd = oldStr.length;
+    let newEnd = newStr.length;
+    while (oldEnd > start && newEnd > start && oldStr[oldEnd - 1] === newStr[newEnd - 1]) {
+      oldEnd--;
+      newEnd--;
+    }
+
+    yText.doc.transact(() => {
+      const deleteCount = oldEnd - start;
+      if (deleteCount > 0) {
+        yText.delete(start, deleteCount);
+      }
+      const insertStr = newStr.slice(start, newEnd);
+      if (insertStr.length > 0) {
+        yText.insert(start, insertStr);
+      }
+    });
+  }, []);
+
+  // ── Editor change handler with loop prevention ───────────────────────────
   const handleEditorChange = useCallback(val => {
+    if (isApplyingRemote.current) return;
     const newVal = val ?? '';
-    if (editorMode==='code') { setCodeContent(newVal); }
-    else { setFileTree(prev=>({...prev,[activeFilePath]:{...prev[activeFilePath],value:newVal}})); }
+    if (editorMode === 'code') {
+      setCodeContent(newVal);
+    } else {
+      setFileTree(prev => {
+        if (prev[activeFilePath]?.value === newVal) return prev;
+        return {
+          ...prev,
+          [activeFilePath]: { ...prev[activeFilePath], value: newVal },
+        };
+      });
+    }
     const doc = yjsDocs.current.get(activeSyncKey);
-    if (doc) { const yText=doc.getText('content'); if(yText.toString()!==newVal) doc.transact(()=>{yText.delete(0,yText.length);yText.insert(0,newVal);}); }
-  }, [activeFilePath, activeSyncKey, editorMode]);
+    if (doc) {
+      const yText = doc.getText('content');
+      applyTextDiff(yText, newVal);
+    }
+  }, [activeFilePath, activeSyncKey, editorMode, applyTextDiff]);
 
   // ── Language change (UNCHANGED) ───────────────────────────────────────────
   const handleLangChange = useCallback(newKey => {
@@ -1181,7 +1300,10 @@ export default function EditorPage() {
               language={editorMode==='code' ? currentLangDef.monacoLang : (activeFileNode?.language ?? 'plaintext')}
               value={editorMode==='code' ? codeContent : (activeFileNode?.value ?? '')}
               onChange={handleEditorChange}
-              onMount={(_,monaco) => defineTheme(monaco)}
+              onMount={(editor, monaco) => {
+                editorRef.current = editor;
+                defineTheme(monaco);
+              }}
               theme="collab-dark"
               options={{
                 minimap:{enabled:false}, fontSize:14,

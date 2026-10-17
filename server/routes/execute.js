@@ -31,28 +31,56 @@ const LANGUAGE_MAP = {
   sql:         { language: 'sql',           versionIndex: '4' },  // SQLite
 };
 
-router.post('/', async (req, res) => {
-  const { language, sourceCode, stdin = '' } = req.body;
+const MAX_SOURCE_LEN = 100 * 1024; // 100 KB
+const MAX_STDIN_LEN  = 10 * 1024;  // 10 KB
 
-  const lang = LANGUAGE_MAP[language];
+router.post('/', async (req, res) => {
+  const { language, sourceCode, stdin = '' } = req.body || {};
+
+  // Strict type & bounds validation
+  if (!language || typeof language !== 'string') {
+    return res.status(400).json({ run: { output: '❌ Missing or invalid language parameter.' } });
+  }
+
+  if (typeof sourceCode !== 'string') {
+    return res.status(400).json({ run: { output: '❌ Missing or invalid sourceCode parameter.' } });
+  }
+
+  if (typeof stdin !== 'string') {
+    return res.status(400).json({ run: { output: '❌ stdin must be a string.' } });
+  }
+
+  if (sourceCode.length > MAX_SOURCE_LEN) {
+    return res.status(400).json({
+      run: { output: `❌ Source code exceeds maximum allowed size (${MAX_SOURCE_LEN / 1024} KB).` },
+    });
+  }
+
+  if (stdin.length > MAX_STDIN_LEN) {
+    return res.status(400).json({
+      run: { output: `❌ Stdin exceeds maximum allowed size (${MAX_STDIN_LEN / 1024} KB).` },
+    });
+  }
+
+  const lang = LANGUAGE_MAP[language.toLowerCase()];
 
   if (!lang) {
-    return res.json({
+    return res.status(400).json({
       run: {
         output: `❌ Language '${language}' is not supported.\n\nSupported: ${Object.keys(LANGUAGE_MAP).join(', ')}`,
       },
     });
   }
 
-  const clientId     = process.env.JDOODLE_CLIENT_ID;
-  const clientSecret = process.env.JDOODLE_CLIENT_SECRET;
+  const clientId     = (process.env.JDOODLE_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.JDOODLE_CLIENT_SECRET || '').trim();
 
   if (!clientId || !clientSecret || clientId === 'your_jdoodle_client_id_here') {
-    return res.json({
+    return res.status(503).json({
       run: {
         output:
-          'ERROR: JDoodle credentials not found.\n' +
-          'Please add JDOODLE_CLIENT_ID and JDOODLE_CLIENT_SECRET to server/.env and restart the server.',
+          '⚠️ JDoodle compiler credentials are not configured.\n' +
+          'Please set valid JDOODLE_CLIENT_ID and JDOODLE_CLIENT_SECRET environment variables.',
       },
     });
   }
@@ -70,28 +98,44 @@ router.post('/', async (req, res) => {
       },
       {
         headers: { 'Content-Type': 'application/json' },
-        timeout: 30000,
+        timeout: 20000, // 20s hard timeout
       }
     );
 
     const data = response.data;
 
-    // JDoodle response fields: output, statusCode, memory, cpuTime
-    const output    = data.output    || 'Execution finished with no output.';
-    const cpuTime   = data.cpuTime   || '?';
-    const memory    = data.memory    || '?';
+    // Handle JDoodle API errors (e.g. daily quota reached or bad status)
+    if (data.error) {
+      return res.json({
+        run: {
+          output: `⚠️ Execution Notice: ${data.error} (Status ${data.statusCode || 429}).\n` +
+                  'The JDoodle sandbox compiler returned an error or the daily execution quota has been reached.',
+          cpuTime: null,
+          memory: null,
+        },
+      });
+    }
 
-    res.json({ run: { output, cpuTime, memory } });
+    // JDoodle standard response fields
+    const output  = data.output ?? 'Program executed successfully with no stdout output.';
+    const cpuTime = data.cpuTime ? `${data.cpuTime}s` : null;
+    const memory  = data.memory ? `${data.memory}KB` : null;
+
+    return res.json({ run: { output, cpuTime, memory } });
 
   } catch (error) {
-    console.error('JDoodle execution error:', error.response?.data || error.message);
+    const status = error.response?.status;
+    let errMsg = `❌ Execution failed: ${error.message}`;
 
-    const errMsg =
-      error.response?.status === 401
-        ? 'Invalid JDoodle credentials. Check JDOODLE_CLIENT_ID and JDOODLE_CLIENT_SECRET in server/.env'
-        : `Execution failed: ${error.message}`;
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      errMsg = '⏱️ Execution timed out after 20 seconds. Infinite loop or slow program execution prevented completion.';
+    } else if (status === 401) {
+      errMsg = '⚠️ Invalid JDoodle credentials. Please verify JDOODLE_CLIENT_ID and JDOODLE_CLIENT_SECRET.';
+    } else if (status === 429) {
+      errMsg = '⚠️ JDoodle compiler rate limit or daily quota reached (200 requests/day).';
+    }
 
-    res.json({ run: { output: errMsg } });
+    return res.json({ run: { output: errMsg, cpuTime: null, memory: null } });
   }
 });
 
