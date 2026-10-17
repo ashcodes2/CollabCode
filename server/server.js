@@ -43,7 +43,11 @@ app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 
 // Healthcheck & root status
-app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+app.get('/health', (req, res) => res.json({
+  status: 'ok',
+  uptime: process.uptime(),
+  db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+}));
 app.get('/', (req, res) => res.json({ message: 'CollabCode API & Socket Server running', status: 'ok' }));
 
 // Routes
