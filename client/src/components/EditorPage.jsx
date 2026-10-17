@@ -617,7 +617,8 @@ export default function EditorPage() {
   // ── Socket.io + Yjs bootstrap ─────────────────────────────────────────────
   useEffect(() => {
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    const configuredBackend = import.meta.env.VITE_BACKEND_URL;
+    const rawBackend = import.meta.env.VITE_BACKEND_URL;
+    const configuredBackend = typeof rawBackend === 'string' && rawBackend.trim() ? rawBackend.trim().replace(/\/+$/, '') : null;
     const socketEndpoint = configuredBackend || (isLocal ? 'http://localhost:3001' : null);
 
     if (!socketEndpoint) {
@@ -894,7 +895,8 @@ export default function EditorPage() {
       const headers = { 'Content-Type':'application/json' };
 
       const candidateUrls = [];
-      const configuredBackend = import.meta.env.VITE_BACKEND_URL;
+      const rawBackend = import.meta.env.VITE_BACKEND_URL;
+      const configuredBackend = typeof rawBackend === 'string' && rawBackend.trim() ? rawBackend.trim().replace(/\/+$/, '') : null;
       const isDeployed = typeof window !== 'undefined' && (window.location.hostname.includes('vercel.app') || window.location.protocol === 'https:');
 
       if (isDeployed) {
