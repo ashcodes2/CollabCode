@@ -9,12 +9,20 @@ const crypto = require('crypto');
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const executeRoutes = require('./routes/execute');
+const aiChatRoutes = require('./routes/aiChat');
+const { setupTerminalGateway } = require('./terminalGateway');
+const { createLiveServerRouter, notifyRoomReload } = require('./liveServer');
 
 // Allowed origins: localhost + any Vercel deployment + custom override via env
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:5175',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
   'https://collabcode-editor.vercel.app',
   /\.vercel\.app$/,
   ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : []),
@@ -39,7 +47,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
+const corsConfig = process.env.NODE_ENV === 'production'
+  ? { origin: ALLOWED_ORIGINS, credentials: true }
+  : { origin: true, credentials: true };
+
+app.use(cors(corsConfig));
 app.use(express.json({ limit: '2mb' }));
 
 // Healthcheck & root status
@@ -54,6 +66,7 @@ app.get('/', (req, res) => res.json({ message: 'CollabCode API & Socket Server r
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/execute', executeRoutes);
+app.use('/api/ai', aiChatRoutes);
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/collab-editor')
@@ -62,15 +75,14 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/collab-ed
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: ALLOWED_ORIGINS,
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
+  cors: corsConfig,
   maxHttpBufferSize: 2e6, // 2MB payload cap
   pingTimeout: 20000,
   pingInterval: 10000,
 });
+
+// Setup Interactive Terminal Gateway
+setupTerminalGateway(io);
 
 // ── Per-room state ────────────────────────────────────────────────────────────
 // Room metadata: roomId -> { adminSocketId, adminToken, members: Set<socketId>, editors: Set<socketId>, cleanupTimer, adminReconnectTimer }
@@ -81,6 +93,9 @@ const roomFileDocs = new Map();
 
 // Persisted file tree per room so late-joining guests see all created files
 const fileTrees = new Map();
+
+// Live Server Router
+app.use('/api/live-server', createLiveServerRouter(fileTrees));
 
 /** Get or create the per-file doc map for a room */
 function getRoomDocs(roomId) {
@@ -238,6 +253,7 @@ io.on('connection', (socket) => {
 
       // Relay to all OTHER clients in the room
       socket.to(roomId).emit('sync-update', { fileName, update });
+      notifyRoomReload(roomId);
     } catch (err) {
       console.error('Yjs sync-update error:', err.message);
     }
@@ -333,6 +349,26 @@ io.on('connection', (socket) => {
 
     // Relay to all other clients
     socket.to(roomId).emit('tree-change', { op, path, node, extraPaths });
+    notifyRoomReload(roomId);
+  });
+
+  // ── Sync snapshot to initialize fileTrees for Live Server ───────────────
+  socket.on('sync-tree-snapshot', (roomIdRaw, snapshot) => {
+    if (typeof roomIdRaw !== 'string' || !snapshot || typeof snapshot !== 'object') return;
+    const roomId = roomIdRaw.trim();
+    if (!fileTrees.has(roomId)) fileTrees.set(roomId, {});
+    const tree = fileTrees.get(roomId);
+    Object.entries(snapshot).forEach(([p, n]) => {
+      const cleanP = sanitizePath(p);
+      if (cleanP && n && typeof n === 'object') {
+        tree[cleanP] = {
+          type: n.type === 'folder' ? 'folder' : 'file',
+          name: typeof n.name === 'string' ? n.name.slice(0, 100) : 'untitled',
+          language: typeof n.language === 'string' ? n.language.slice(0, 30) : 'plaintext',
+          value: typeof n.value === 'string' ? n.value.slice(0, 500000) : '',
+        };
+      }
+    });
   });
 
   // ── Edit access request flow ──────────────────────────────────────────────

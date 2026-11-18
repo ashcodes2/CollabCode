@@ -5,8 +5,8 @@ import {
   Code2, Lock, LogIn, Plus, Eye, EyeOff,
   AlertCircle, Zap, Users, Terminal, Globe, Shield,
   ArrowRight, RefreshCw, Copy, Check,
-  GitBranch, Play, Cpu, ArrowUpRight,
-  Menu, X, Mail, Phone,
+  GitBranch, Sparkles, Cpu, ArrowUpRight,
+  Menu, X, Mail,
 } from 'lucide-react';
 import '../index.css';
 
@@ -17,11 +17,11 @@ function generateRoomId() {
 
 // ── Demo data ─────────────────────────────────────────────────────────────────
 const CODE_LINES = [
-  { text: 'const room = await Room.join(id);',      color: '#60A5FA', delay: 0    },
-  { text: 'room.on("sync", applyUpdate);',          color: '#A78BFA', delay: 0.3  },
-  { text: 'editor.setLanguage("python");',          color: '#34D399', delay: 0.6  },
-  { text: 'socket.emit("tree-change", payload);',   color: '#60A5FA', delay: 0.9  },
-  { text: 'Y.applyUpdate(doc, new Uint8Array(u));', color: '#A78BFA', delay: 1.2  },
+  { text: 'const room = await Room.join(id);',       color: '#60A5FA', delay: 0    },
+  { text: 'room.on("sync", applyYjsUpdate);',        color: '#A78BFA', delay: 0.3  },
+  { text: 'preview.render({ html, css, js });',     color: '#34D399', delay: 0.6  },
+  { text: 'ai.ask("Explain Flexbox layout");',       color: '#F472B6', delay: 0.9  },
+  { text: 'socket.emit("collab-update", payload);',  color: '#60A5FA', delay: 1.2  },
 ];
 
 const COLLABORATORS = [
@@ -34,45 +34,45 @@ const FEATURES = [
   {
     icon: <Zap size={18} />,
     title: 'Real-time CRDT Sync',
-    desc: 'Conflict-free collaborative editing powered by Yjs. Changes from multiple users merge automatically without data loss.',
-  },
-  {
-    icon: <Terminal size={18} />,
-    title: '19-Language Cloud Execution',
-    desc: 'Write and run JavaScript, Python, Go, Rust, C++, Java and more — executed instantly in isolated cloud sandboxes.',
-  },
-  {
-    icon: <Users size={18} />,
-    title: 'Role-based Access Control',
-    desc: 'Room admins control who can type. Viewers follow along live, request write access, or be promoted by the admin.',
+    desc: 'Conflict-free collaborative editing powered by Yjs and WebSockets. Changes from multiple users merge automatically in real time without data loss.',
   },
   {
     icon: <Globe size={18} />,
-    title: 'Live Web Preview',
-    desc: 'Build HTML/CSS/JS projects with a multi-file explorer and a live iframe preview that updates as you type.',
+    title: 'In-IDE Live Web Preview',
+    desc: 'Build HTML, CSS, and JavaScript projects with an instant iframe preview, live console bridge, and resizable split-pane layout.',
+  },
+  {
+    icon: <Sparkles size={18} />,
+    title: 'Groq-Powered AI Assistant',
+    desc: 'Built-in conversational coding chatbot powered by Groq LLM (openai/gpt-oss-120b) with syntax highlighting, Markdown formatting, and copy code actions.',
+  },
+  {
+    icon: <Users size={18} />,
+    title: 'Role-Based Access Control',
+    desc: 'Room admins manage write access. Collaborators follow along in real time, view live updates, or contribute simultaneously with optional password protection.',
   },
 ];
 
 const TECH_STACK = [
-  { name: 'React 19',       role: 'Frontend framework',        dot: '#61DAFB' },
-  { name: 'Yjs',            role: 'CRDT sync engine',          dot: '#8B5CF6' },
-  { name: 'Monaco Editor',  role: 'Code editing surface',      dot: '#3B82F6' },
-  { name: 'Socket.io',      role: 'Real-time WebSocket layer', dot: '#10B981' },
-  { name: 'Node.js',        role: 'Backend runtime',           dot: '#68A063' },
-  { name: 'Express',        role: 'HTTP API server',           dot: '#E2E2E2' },
-  { name: 'Three.js',       role: '3D background rendering',   dot: '#06B6D4' },
-  { name: 'Vite',           role: 'Build tooling',             dot: '#646CFF' },
-  { name: 'Framer Motion',  role: 'Animation library',         dot: '#EC4899' },
-  { name: 'JDoodle API',    role: 'Cloud code execution',      dot: '#EAB308' },
-  { name: 'Vercel',         role: 'Frontend hosting',          dot: '#E2E2E2' },
-  { name: 'Lucide React',   role: 'Icon system',               dot: '#F97316' },
+  { name: 'React 19',       role: 'Frontend UI framework',             dot: '#61DAFB' },
+  { name: 'Yjs',            role: 'CRDT real-time sync engine',        dot: '#8B5CF6' },
+  { name: 'Monaco Editor',  role: 'Professional code editor surface',  dot: '#3B82F6' },
+  { name: 'Socket.io',      role: 'Bidirectional WebSocket channel',   dot: '#10B981' },
+  { name: 'Groq Cloud',     role: 'High-speed LLM AI inference',       dot: '#F55036' },
+  { name: 'Node.js',        role: 'Server runtime environment',        dot: '#68A063' },
+  { name: 'Express',        role: 'HTTP API & proxy server',           dot: '#E2E2E2' },
+  { name: 'Vite',           role: 'Fast client build tooling',         dot: '#646CFF' },
+  { name: 'Framer Motion',  role: 'Interactive UI animations',         dot: '#EC4899' },
+  { name: 'Prism.js',       role: 'Markdown syntax highlighting',      dot: '#F59E0B' },
+  { name: 'Three.js',       role: '3D background rendering',           dot: '#06B6D4' },
+  { name: 'Lucide React',   role: 'Clean vector icon system',          dot: '#F97316' },
 ];
 
 const STEPS = [
-  { num: '01', title: 'Create a room', desc: 'A unique room ID is generated. You become admin with full edit access and optional password protection.' },
-  { num: '02', title: 'Share the ID', desc: 'Share the room ID with teammates. They connect via WebSocket and immediately receive the full Yjs document state.' },
-  { num: '03', title: 'Edit together', desc: 'Every keystroke is encoded as a Yjs CRDT update and broadcast to all peers in real-time via Socket.io.' },
-  { num: '04', title: 'Run in the cloud', desc: 'Click Run — the server forwards your code to JDoodle, executes it in an isolated sandbox, and streams output back.' },
+  { num: '01', title: 'Create a room', desc: 'A unique room ID is generated instantly. You become room admin with full edit access and optional password protection.' },
+  { num: '02', title: 'Share the ID', desc: 'Share your room ID with teammates. They connect via WebSocket and immediately receive the live collaborative document state.' },
+  { num: '03', title: 'Code together in real time', desc: 'Every keystroke in HTML, CSS, or JavaScript is synchronized across peers using Yjs CRDT conflict resolution.' },
+  { num: '04', title: 'Live preview & AI assist', desc: 'Inspect your web app in the live in-IDE preview and consult the built-in Groq AI chatbot for guidance and debugging.' },
 ];
 
 // ── CollabDemo (preserved) ────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ function CollabDemo() {
           <span key={c} style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
         ))}
         <span style={{ marginLeft: 7, fontSize: '0.67rem', color: 'rgba(255,255,255,0.22)', fontFamily: '"JetBrains Mono", monospace' }}>
-          main.py — CollabCode
+          index.html — CollabCode
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
           {COLLABORATORS.map(c => (
@@ -230,16 +230,10 @@ function Navbar() {
             <div style={{ height: 1, background: 'var(--border-dim)', margin: '6px 0' }} />
 
             <a
-              href="mailto:support@collabcode.dev"
+              href="mailto:avinash744826@gmail.com"
               className="lp-mobile-nav-link"
             >
-              <Mail size={14} color="#9B9BAA" /> support@collabcode.dev
-            </a>
-            <a
-              href="tel:+18005550199"
-              className="lp-mobile-nav-link"
-            >
-              <Phone size={14} color="#9B9BAA" /> +1 (800) 555-0199
+              <Mail size={14} color="#9B9BAA" /> avinash744826@gmail.com
             </a>
 
             <a
@@ -272,12 +266,12 @@ export default function LandingPage() {
 
   // ── SEO Head metadata ───────────────────────────────────────────────────────
   useEffect(() => {
-    document.title = 'CollabCode — Real-Time Collaborative Cloud IDE';
+    document.title = 'CollabCode — Real-Time Collaborative Frontend Web IDE';
     const metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc) {
       metaDesc.setAttribute(
         'content',
-        'CollabCode is a fast, browser-based collaborative code editor powered by Yjs CRDT real-time sync, Monaco editor, 19-language cloud sandboxing, and instant live web preview.'
+        'CollabCode is a browser-based collaborative frontend IDE powered by Yjs CRDT real-time sync, Monaco editor, in-IDE live web preview, and Groq-powered AI coding assistant.'
       );
     }
   }, []);
@@ -378,7 +372,7 @@ export default function LandingPage() {
             transition={{ delay: 0.08, duration: 0.55 }}
             className="lp-headline"
           >
-            Collaborative code editing,{' '}
+            Collaborative web editing,{' '}
             <span className="lp-headline-accent">in the browser.</span>
           </motion.h1>
 
@@ -388,9 +382,8 @@ export default function LandingPage() {
             transition={{ delay: 0.18, duration: 0.5 }}
             className="lp-subtitle"
           >
-            Real-time collaborative IDE with Yjs CRDT synchronization, cloud
-            code execution across 19 languages, live web preview, and
-            role-based access control.
+            Real-time collaborative frontend IDE powered by Yjs CRDT synchronization,
+            in-IDE live web preview, integrated Monaco editor, and Groq-powered AI coding assistant.
           </motion.p>
 
           <motion.div
@@ -400,10 +393,10 @@ export default function LandingPage() {
             className="lp-chips"
           >
             {[
-              { icon: <Zap size={11} />,      label: 'Yjs CRDT sync'     },
-              { icon: <Terminal size={11} />,  label: '19 languages'      },
-              { icon: <Shield size={11} />,    label: 'Role-based access' },
-              { icon: <Globe size={11} />,     label: 'Live web preview'  },
+              { icon: <Zap size={11} />,      label: 'Yjs CRDT sync'       },
+              { icon: <Globe size={11} />,    label: 'Live web preview'    },
+              { icon: <Sparkles size={11} />, label: 'Groq AI assistant'   },
+              { icon: <Shield size={11} />,   label: 'Role-based access'   },
             ].map(c => (
               <div key={c.label} className="lp-chip">
                 <span className="lp-chip-icon">{c.icon}</span>
@@ -666,7 +659,7 @@ export default function LandingPage() {
           <div className="lp-section-eyebrow">How it works</div>
           <h2 className="lp-section-title">Architecture overview</h2>
           <p className="lp-section-subtitle">
-            A lightweight WebSocket-based system with CRDT synchronization and cloud execution.
+            A lightweight WebSocket architecture with CRDT synchronization and Groq AI acceleration.
           </p>
         </div>
 
@@ -683,7 +676,7 @@ export default function LandingPage() {
               <Code2 size={20} />
             </div>
             <div className="lp-arch-node-label">Browser Clients</div>
-            <div className="lp-arch-node-sub">React · Monaco<br/>Yjs CRDT</div>
+            <div className="lp-arch-node-sub">React · Monaco<br/>Yjs CRDT & Live Preview</div>
           </motion.div>
 
           <div className="lp-arch-connector">
@@ -703,7 +696,7 @@ export default function LandingPage() {
               <Cpu size={20} />
             </div>
             <div className="lp-arch-node-label">Node.js Server</div>
-            <div className="lp-arch-node-sub">Express · Socket.io<br/>Room + Yjs relay</div>
+            <div className="lp-arch-node-sub">Express · Socket.io<br/>Room relay & AI Proxy</div>
           </motion.div>
 
           <div className="lp-arch-connector">
@@ -719,11 +712,11 @@ export default function LandingPage() {
             viewport={{ once: true }}
             transition={{ delay: 0.2 }}
           >
-            <div className="lp-arch-node-icon" style={{ color: '#F59E0B' }}>
-              <Play size={20} />
+            <div className="lp-arch-node-icon" style={{ color: '#F55036' }}>
+              <Sparkles size={20} />
             </div>
-            <div className="lp-arch-node-label">JDoodle API</div>
-            <div className="lp-arch-node-sub">Isolated sandboxes<br/>19 languages</div>
+            <div className="lp-arch-node-label">Groq Cloud AI</div>
+            <div className="lp-arch-node-sub">openai/gpt-oss-120b<br/>Instant coding chat</div>
           </motion.div>
         </div>
 
@@ -788,14 +781,9 @@ export default function LandingPage() {
             CollabCode
           </a>
           <div className="lp-footer-contact">
-            <a href="mailto:support@collabcode.dev" className="lp-footer-link" title="Contact Email">
+            <a href="mailto:avinash744826@gmail.com" className="lp-footer-link" title="Contact Email">
               <Mail size={12} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
-              support@collabcode.dev
-            </a>
-            <span style={{ color: 'var(--border-strong)', margin: '0 6px' }}>•</span>
-            <a href="tel:+18005550199" className="lp-footer-link" title="Helpline Phone">
-              <Phone size={12} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
-              +1 (800) 555-0199
+              avinash744826@gmail.com
             </a>
           </div>
           <div className="lp-footer-links">
