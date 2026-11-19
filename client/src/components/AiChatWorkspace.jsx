@@ -287,11 +287,6 @@ export default function AiChatWorkspace({
     try {
       const rawBackend = import.meta.env.VITE_BACKEND_URL;
       const configuredBackend = typeof rawBackend === 'string' && rawBackend.trim() ? rawBackend.trim().replace(/\/+$/, '') : null;
-      
-      // Prefer relative endpoint proxied by Vite dev server (/api/ai/chat)
-      // or configured external backend in production
-      const primaryUrl = configuredBackend ? `${configuredBackend}/api/ai/chat` : '/api/ai/chat';
-      const fallbackUrl = 'http://127.0.0.1:3001/api/ai/chat';
 
       // Send sanitized history to backend
       const payloadMessages = historyToSend
@@ -301,52 +296,67 @@ export default function AiChatWorkspace({
           content: m.content,
         }));
 
-      const controller = new AbortController();
-      const timeoutTimer = setTimeout(() => controller.abort(), 40000);
-
-      let res;
-      try {
-        res = await fetch(primaryUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: payloadMessages }),
-          signal: controller.signal,
-        });
-      } catch (fetchErr) {
-        // If relative URL failed and no custom backend was set, try direct fallback to 127.0.0.1:3001
-        if (!configuredBackend && fetchErr.name !== 'AbortError') {
-          try {
-            res = await fetch(fallbackUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ messages: payloadMessages }),
-              signal: controller.signal,
-            });
-          } catch (fallbackErr) {
-            throw fetchErr;
-          }
-        } else {
-          throw fetchErr;
-        }
-      } finally {
-        clearTimeout(timeoutTimer);
+      // Candidate endpoints in priority order:
+      // 1. Same-origin relative endpoint '/api/ai/chat' (Vercel Serverless Function in production, Vite dev proxy in dev)
+      // 2. Configured external backend (e.g. Render server) if provided
+      // 3. Localhost fallback (127.0.0.1:3001) for local Node server
+      const candidates = ['/api/ai/chat'];
+      if (configuredBackend && !candidates.includes(`${configuredBackend}/api/ai/chat`)) {
+        candidates.push(`${configuredBackend}/api/ai/chat`);
+      }
+      if (!candidates.includes('http://127.0.0.1:3001/api/ai/chat')) {
+        candidates.push('http://127.0.0.1:3001/api/ai/chat');
       }
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        const status = res.status;
-        let descriptiveError = errorData.error;
+      let res = null;
+      let lastErrorMessage = null;
 
-        if (!descriptiveError) {
-          if (status === 401) descriptiveError = 'Authentication failure: Invalid Groq API key in server configuration.';
-          else if (status === 404) descriptiveError = 'Model error: The specified Groq model was not found.';
-          else if (status === 429) descriptiveError = 'Rate limit exceeded: Too many requests to Groq. Please wait a moment before trying again.';
-          else if (status === 502 || status === 503) descriptiveError = 'Groq service error: AI service is currently unavailable.';
-          else if (status === 504) descriptiveError = 'Network timeout: Request to Groq API timed out.';
-          else descriptiveError = `Server returned HTTP ${status}: ${res.statusText}`;
+      for (const endpoint of candidates) {
+        const controller = new AbortController();
+        const timeoutTimer = setTimeout(() => controller.abort(), 45000);
+
+        try {
+          const attemptRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: payloadMessages }),
+            signal: controller.signal,
+          });
+
+          if (attemptRes.ok) {
+            res = attemptRes;
+            break;
+          } else {
+            const errorData = await attemptRes.json().catch(() => ({}));
+            const status = attemptRes.status;
+            let descriptiveError = errorData.error;
+
+            if (!descriptiveError) {
+              if (status === 401) descriptiveError = 'Authentication failure: Invalid Groq API key in server configuration.';
+              else if (status === 404) descriptiveError = 'Model error: The specified Groq model was not found.';
+              else if (status === 429) descriptiveError = 'Rate limit exceeded: Too many requests to Groq. Please wait a moment before trying again.';
+              else if (status === 502 || status === 503) descriptiveError = 'Groq service error: AI service is currently unavailable.';
+              else if (status === 504) descriptiveError = 'Network timeout: Request to Groq API timed out.';
+              else descriptiveError = `Server returned HTTP ${status}: ${attemptRes.statusText}`;
+            }
+
+            lastErrorMessage = descriptiveError;
+            console.warn(`[AI Chat] Endpoint ${endpoint} returned HTTP ${status}:`, descriptiveError);
+          }
+        } catch (fetchErr) {
+          if (fetchErr.name === 'AbortError') {
+            lastErrorMessage = 'Network timeout: The AI service took longer than 45 seconds to respond.';
+          } else {
+            lastErrorMessage = fetchErr.message;
+          }
+          console.warn(`[AI Chat] Network error reaching ${endpoint}:`, fetchErr.message);
+        } finally {
+          clearTimeout(timeoutTimer);
         }
+      }
 
-        throw new Error(descriptiveError);
+      if (!res) {
+        throw new Error(lastErrorMessage || 'Could not connect to any CollabCode AI chat endpoint.');
       }
 
       const data = await res.json();
