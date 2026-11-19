@@ -1,5 +1,11 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+require('dotenv').config();
+
+const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 
 const SYSTEM_PROMPT = `You are CollabCode AI, a helpful programming assistant integrated into a collaborative web development IDE.
 
@@ -31,10 +37,10 @@ If the user asks a question unrelated to programming, politely guide them back t
  * Check if Groq AI service is configured
  */
 router.get('/status', (req, res) => {
-  const isConfigured = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim());
+  const apiKey = (process.env.GROQ_API_KEY || '').trim();
   res.json({
-    available: isConfigured,
-    model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+    available: Boolean(apiKey),
+    model: process.env.GROQ_MODEL || DEFAULT_MODEL,
   });
 });
 
@@ -50,14 +56,14 @@ router.post('/chat', async (req, res) => {
       return res.status(400).json({ error: 'Messages array is required.' });
     }
 
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey || !apiKey.trim()) {
+    const apiKey = (process.env.GROQ_API_KEY || '').trim();
+    if (!apiKey) {
       return res.status(500).json({
         error: 'GROQ_API_KEY is not configured on the server. Please set it in the server environment.',
       });
     }
 
-    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+    const model = (process.env.GROQ_MODEL || DEFAULT_MODEL).trim();
 
     // Format conversation history
     const sanitizedMessages = messages
