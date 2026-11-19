@@ -1749,3 +1749,501 @@ html, body {
   50% { opacity: 1; transform: scale(1.2); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   RESPONSIVE DESIGN SYSTEM (MOBILE, TABLET & DESKTOP)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Default desktop display rules for mobile-only controls */
+.cc-mobile-menu-btn {
+  display: none;
+}
+.cc-mobile-search-btn {
+  display: none;
+}
+.cc-mobile-bottom-bar {
+  display: none;
+}
+.cc-sidebar-backdrop {
+  display: none;
+}
+.cc-preview-back-btn {
+  display: none;
+}
+
+/* ── Breakpoint: Tablet & Mobile (<= 768px) ────────────────────────────────── */
+@media (max-width: 768px) {
+  /* 1. Global Viewport Adjustments */
+  html, body, .cc-ide-root {
+    height: 100vh;
+    height: 100dvh;
+    width: 100vw;
+    overflow-x: hidden;
+  }
+
+  /* 2. Top Navigation Bar */
+  .cc-top-nav {
+    height: 42px;
+    min-height: 42px;
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .cc-mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    color: var(--cc-text-primary);
+    cursor: pointer;
+    border-radius: var(--r-xs);
+    flex-shrink: 0;
+  }
+  .cc-mobile-menu-btn:hover,
+  .cc-mobile-menu-btn:active {
+    background: var(--cc-surface-2);
+  }
+  .cc-nav-brand {
+    font-size: 12.5px;
+    gap: 6px;
+  }
+  .cc-brand-badge {
+    width: 20px;
+    height: 20px;
+  }
+  .cc-nav-menus {
+    display: none !important;
+  }
+  .cc-nav-search {
+    display: none !important;
+  }
+  .cc-mobile-search-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--cc-surface-1);
+    border: 1px solid var(--cc-border-subtle);
+    border-radius: var(--r-xs);
+    color: var(--cc-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .cc-nav-actions {
+    gap: 4px;
+    margin-left: auto;
+  }
+  .cc-mode-pill-group {
+    padding: 1px;
+    gap: 2px;
+  }
+  .cc-mode-pill {
+    padding: 3px 6px;
+    font-size: 11px;
+    gap: 3px;
+  }
+  .cc-preview-btn {
+    padding: 3px 7px;
+    font-size: 11px;
+  }
+  .cc-preview-btn .cc-preview-btn-text {
+    display: none;
+  }
+  .cc-room-badge {
+    padding: 3px 6px;
+    font-size: 10.5px;
+    gap: 4px;
+  }
+  .cc-room-badge .cc-room-label {
+    display: none;
+  }
+
+  /* 3. Activity Bar replaced by Bottom Bar */
+  .cc-activity-bar {
+    display: none !important;
+  }
+
+  /* 4. Slide-out Drawer Sidebar */
+  .cc-sidebar {
+    position: fixed !important;
+    top: 42px;
+    bottom: 48px;
+    left: 0;
+    width: min(300px, 86vw) !important;
+    z-index: 850;
+    background: var(--cc-bg-sidebar);
+    border-right: 1px solid var(--cc-border-strong);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.75);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transform: translateX(0);
+    display: flex !important;
+  }
+  .cc-sidebar.collapsed {
+    transform: translateX(-105%) !important;
+    pointer-events: none;
+    box-shadow: none;
+  }
+  .cc-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    top: 42px;
+    bottom: 48px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(2px);
+    z-index: 840;
+  }
+  .resize-handle-h {
+    display: none !important;
+  }
+  .cc-sidebar-header {
+    height: 38px;
+    min-height: 38px;
+    padding: 0 10px;
+  }
+  .cc-sidebar-tree {
+    padding: 6px 4px;
+  }
+  /* Enlarge touch targets in tree */
+  .cc-sidebar-tree > div,
+  .cc-sidebar-tree [style*="cursor: pointer"] {
+    min-height: 34px !important;
+  }
+
+  /* 5. Central Workspace & Editor */
+  .cc-main-workspace {
+    width: 100%;
+    height: 100%;
+  }
+  .cc-tabs-strip {
+    height: 32px;
+    min-height: 32px;
+    padding: 0 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .cc-tab {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 11px;
+    gap: 5px;
+  }
+  .cc-tab-close {
+    width: 18px;
+    height: 18px;
+    margin-left: 2px;
+  }
+  .cc-editor-surface {
+    position: relative;
+    overflow: hidden;
+  }
+  .resize-handle-split {
+    display: none !important;
+  }
+
+  /* 6. Full-Screen Mobile Live Preview */
+  .cc-preview-pane {
+    position: absolute !important;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+    flex: 1 1 100% !important;
+    z-index: 50;
+    border-left: none !important;
+  }
+  .cc-preview-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: var(--cc-surface-2);
+    border: 1px solid var(--cc-border-default);
+    border-radius: var(--r-xs);
+    color: var(--cc-text-primary);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-right: 6px;
+  }
+  .cc-preview-back-btn:active {
+    background: var(--cc-surface-3);
+  }
+  .cc-preview-pane-header {
+    height: 34px;
+    min-height: 34px;
+    padding: 0 8px;
+  }
+
+  /* 7. Mobile Bottom Navigation Bar */
+  .cc-mobile-bottom-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    height: 48px;
+    min-height: 48px;
+    background: var(--cc-bg-nav);
+    border-top: 1px solid var(--cc-border-subtle);
+    padding: 0 4px;
+    z-index: 700;
+    flex-shrink: 0;
+  }
+  .cc-mobile-nav-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    background: transparent;
+    border: none;
+    color: var(--cc-text-muted);
+    font-size: 9.5px;
+    font-weight: 500;
+    padding: 4px 6px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    min-width: 44px;
+    height: 42px;
+    transition: all 0.12s;
+  }
+  .cc-mobile-nav-btn:hover {
+    color: var(--cc-text-secondary);
+  }
+  .cc-mobile-nav-btn.active {
+    color: #ffffff;
+    background: var(--cc-surface-2);
+  }
+  .cc-mobile-nav-btn.active.ai-active {
+    color: #c084fc;
+  }
+  .cc-mobile-nav-btn.active.preview-active {
+    color: #10b981;
+  }
+
+  /* 8. Status Bar on Mobile */
+  .cc-statusbar {
+    display: none !important;
+  }
+
+  /* 9. AI Chat Workspace Mobile Tuning */
+  .cc-ai-workspace {
+    height: 100%;
+  }
+  .cc-ai-header {
+    height: 40px;
+    min-height: 40px;
+    padding: 0 10px;
+  }
+  .cc-ai-sub {
+    display: none !important;
+  }
+  .cc-ai-header-actions {
+    gap: 4px;
+  }
+  .cc-ai-tool-btn {
+    padding: 3px 6px;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .cc-ai-messages-area {
+    padding: 12px 10px;
+  }
+  .cc-ai-empty-state {
+    padding: 16px 8px;
+  }
+  .cc-ai-empty-state h3 {
+    font-size: 15px;
+  }
+  .cc-ai-empty-state p {
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  .cc-ai-prompts-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .cc-ai-prompt-card {
+    padding: 9px 11px;
+  }
+  .cc-ai-prompt-card .title {
+    font-size: 12px;
+  }
+  .cc-ai-prompt-card .desc {
+    font-size: 11px;
+  }
+  .cc-ai-message-row {
+    gap: 8px;
+  }
+  .cc-ai-bubble-avatar {
+    width: 24px;
+    height: 24px;
+  }
+  .cc-ai-message-bubble {
+    max-width: 95%;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    border-radius: 8px;
+  }
+  .cc-ai-input-container {
+    padding: 8px 10px 10px;
+  }
+  .cc-ai-input-hint {
+    display: none;
+  }
+  .cc-ai-textarea {
+    font-size: 12.5px;
+    min-height: 40px;
+  }
+  .cc-ai-send-btn {
+    padding: 5px 12px;
+    font-size: 11.5px;
+  }
+  .cc-ai-code-header {
+    height: 28px;
+    padding: 0 8px;
+  }
+  .cc-ai-code-body {
+    padding: 10px 12px;
+    font-size: 11.5px;
+  }
+
+  /* 10. Quick Open Dialog on Mobile */
+  .quick-open-dialog {
+    width: 92vw !important;
+    max-width: 92vw !important;
+    top: 48px !important;
+  }
+
+  /* 11. Landing Page Mobile Layout */
+  .lp-nav {
+    padding: 0 16px;
+  }
+  .lp-nav-links {
+    display: none;
+  }
+  .lp-nav-mobile-toggle {
+    display: flex;
+  }
+  .lp-hero {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    padding: 32px 18px;
+    min-height: auto;
+  }
+  .lp-headline {
+    font-size: clamp(1.8rem, 6vw, 2.4rem);
+    margin-bottom: 14px;
+  }
+  .lp-subtitle {
+    font-size: 0.92rem;
+    margin-bottom: 22px;
+  }
+  .lp-chips {
+    margin-bottom: 24px;
+  }
+  .lp-room-panel {
+    padding: 20px 16px;
+  }
+  .lp-section {
+    padding: 48px 18px;
+  }
+  .lp-section-rule {
+    padding: 0 18px;
+  }
+  .lp-features-grid {
+    grid-template-columns: 1fr;
+  }
+  .lp-feature-card {
+    padding: 22px 18px;
+  }
+  .lp-arch-flow {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .lp-arch-connector {
+    transform: rotate(90deg);
+    padding: 4px 0;
+  }
+  .lp-arch-node {
+    width: 100%;
+    max-width: 260px;
+  }
+  .lp-steps-grid {
+    grid-template-columns: 1fr;
+  }
+  .lp-tech-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+  .lp-footer-inner {
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px 18px;
+    text-align: center;
+  }
+  .lp-footer-links {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+  }
+}
+
+/* ── Breakpoint: Small Mobile (<= 480px) ────────────────────────────────────── */
+@media (max-width: 480px) {
+  .cc-top-nav {
+    padding: 0 6px;
+    gap: 4px;
+  }
+  .cc-nav-brand span.cc-brand-name {
+    font-size: 11.5px;
+  }
+  .cc-mode-pill {
+    padding: 2px 4px;
+    font-size: 10.5px;
+  }
+  .cc-room-badge {
+    padding: 2px 5px;
+    font-size: 10px;
+  }
+  .cc-mobile-bottom-bar {
+    height: 46px;
+    min-height: 46px;
+  }
+  .cc-mobile-nav-btn {
+    min-width: 38px;
+    height: 40px;
+    font-size: 9px;
+  }
+  .cc-mobile-nav-btn span {
+    font-size: 8.5px;
+  }
+}
+
+/* ── Breakpoint: Ultra-Small Mobile (<= 360px - e.g. 320px) ─────────────────── */
+@media (max-width: 360px) {
+  .cc-nav-brand span.cc-brand-name {
+    display: none;
+  }
+  .cc-mode-pill span {
+    display: none;
+  }
+  .cc-mode-pill {
+    padding: 3px 5px;
+  }
+  .cc-room-badge .cc-room-code {
+    max-width: 50px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lp-headline {
+    font-size: 1.55rem;
+  }
+  .lp-input-row {
+    flex-direction: column;
+  }
+  .lp-random-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

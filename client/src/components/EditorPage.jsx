@@ -8,7 +8,8 @@ import {
   ChevronDown, ChevronRight, FolderOpen, Folder,
   FilePlus, FolderPlus,
   Search, Files,
-  X, Users, Radio, Settings, Sparkles
+  X, Users, Radio, Settings, Sparkles,
+  Menu, ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as Y from 'yjs';
@@ -596,10 +597,23 @@ export default function EditorPage() {
   const [splitPct, setSplitPct] = useState(52); // Monaco takes 52%, Preview takes 48%
   const isDraggingSplit = useRef(false);
 
+  // ── Responsive Mobile State ───────────────────────────────────────────────
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      editorRef.current?.layout();
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // IDE Activity Bar & Sidebar
   const [activeActivityTab, setActiveActivityTab] = useState('explorer'); // 'explorer' | 'search' | 'collab'
   const [sidebarWidth, setSidebarWidth] = useState(240);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
   const isResizingSidebar = useRef(false);
 
   // Status & Navigation
@@ -822,6 +836,10 @@ export default function EditorPage() {
     setActiveFilePath(path);
     if (path.endsWith('.html')) setPreviewFilePath(path);
     setOpenTabs(prev => prev.includes(path) ? prev : [...prev, path]);
+    setWorkspaceMode('code');
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setIsSidebarCollapsed(true);
+    }
   }, []);
 
   const closeTab = useCallback((path, e) => {
@@ -892,15 +910,29 @@ export default function EditorPage() {
       {/* ── 1. Top Navigation Bar ───────────────────────────────────────────── */}
       <header className="cc-top-nav">
         {/* Brand & Main Menus */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          {/* Mobile Drawer Menu Toggle (visible only on mobile/tablet) */}
+          <button
+            className="cc-mobile-menu-btn"
+            onClick={() => {
+              setWorkspaceMode('code');
+              setActiveActivityTab('explorer');
+              setIsSidebarCollapsed(!isSidebarCollapsed);
+            }}
+            title={isSidebarCollapsed ? "Open File Explorer" : "Close File Explorer"}
+            aria-label="Toggle file explorer drawer"
+          >
+            <Menu size={18} />
+          </button>
+
           <Link to="/" className="cc-nav-brand">
             <div className="cc-brand-badge">
               <Code2 size={14} />
             </div>
-            <span>CollabCode</span>
+            <span className="cc-brand-name">CollabCode</span>
           </Link>
 
-          {/* Menus */}
+          {/* Menus (Desktop only) */}
           <div className="cc-nav-menus">
             {['File', 'Edit', 'Selection', 'View', 'Preview'].map(menu => (
               <div key={menu} style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
@@ -926,7 +958,7 @@ export default function EditorPage() {
           </div>
         </div>
 
-        {/* Center Quick Search Capsule */}
+        {/* Center Quick Search Capsule (Desktop) */}
         <div
           className="cc-nav-search"
           onClick={() => { setIsQuickOpenVisible(true); setTimeout(() => quickOpenInputRef.current?.focus(), 40); }}
@@ -938,11 +970,25 @@ export default function EditorPage() {
 
         {/* Right Actions & Preview Toggle */}
         <div className="cc-nav-actions">
+          {/* Mobile Quick Search Button (Tablet & Mobile) */}
+          <button
+            className="cc-mobile-search-btn"
+            onClick={() => { setIsQuickOpenVisible(true); setTimeout(() => quickOpenInputRef.current?.focus(), 40); }}
+            title="Search Workspace Files"
+            aria-label="Quick open files"
+          >
+            <Search size={15} />
+          </button>
+
           {/* Workspace Switcher (Code vs AI Chat) */}
           <div className="cc-mode-pill-group">
             <button
               className={`cc-mode-pill ${workspaceMode === 'code' ? 'active' : ''}`}
-              onClick={() => setWorkspaceMode('code')}
+              onClick={() => {
+                setWorkspaceMode('code');
+                setIsPreviewOpen(false);
+                setTimeout(() => editorRef.current?.layout(), 50);
+              }}
               title="Code Editor Workspace"
             >
               <Code2 size={12} />
@@ -950,7 +996,10 @@ export default function EditorPage() {
             </button>
             <button
               className={`cc-mode-pill ${workspaceMode === 'ai' ? 'active ai' : ''}`}
-              onClick={() => setWorkspaceMode('ai')}
+              onClick={() => {
+                setWorkspaceMode('ai');
+                setIsPreviewOpen(false);
+              }}
               title="CollabCode AI Coding Chatbot"
             >
               <Sparkles size={12} />
@@ -961,11 +1010,14 @@ export default function EditorPage() {
           {/* Dedicated Single Toggle Preview Button */}
           <button
             className={`cc-preview-btn ${isPreviewOpen ? 'active' : ''}`}
-            onClick={() => setIsPreviewOpen(prev => !prev)}
-            title={isPreviewOpen ? 'Hide Live Preview' : 'Open In-IDE Live Preview (Split View)'}
+            onClick={() => {
+              setIsPreviewOpen(prev => !prev);
+              setTimeout(() => editorRef.current?.layout(), 50);
+            }}
+            title={isPreviewOpen ? 'Hide Live Preview' : 'Open Live Preview'}
           >
             <Globe size={13} />
-            <span>Preview</span>
+            <span className="cc-preview-btn-text">Preview</span>
             {isPreviewOpen && <span className="cc-preview-active-indicator" />}
           </button>
 
@@ -981,7 +1033,7 @@ export default function EditorPage() {
             }}
           >
             <span className="dot" />
-            <span style={{ color: 'var(--cc-text-muted)' }}>Room</span>
+            <span className="cc-room-label" style={{ color: 'var(--cc-text-muted)' }}>Room</span>
             <span className="cc-room-code">{roomId}</span>
             {copied ? <Check size={12} color="#10b981" /> : <Copy size={12} color="#9fa6b2" />}
           </div>
@@ -1089,12 +1141,21 @@ export default function EditorPage() {
           </button>
         </aside>
 
+        {/* Mobile Backdrop Overlay for slide-out drawer */}
+        {isMobile && !isSidebarCollapsed && (
+          <div
+            className="cc-sidebar-backdrop"
+            onClick={() => setIsSidebarCollapsed(true)}
+            aria-label="Close sidebar drawer"
+          />
+        )}
+
         {/* Sidebar (Explorer / Search / Collab) */}
         <aside
-          className={`cc-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}
-          style={{ width: isSidebarCollapsed ? 0 : sidebarWidth }}
+          className={`cc-sidebar ${isSidebarCollapsed ? 'collapsed' : ''} ${isMobile ? 'mobile-drawer' : ''}`}
+          style={isMobile ? undefined : { width: isSidebarCollapsed ? 0 : sidebarWidth }}
         >
-          {!isSidebarCollapsed && (
+          {!isSidebarCollapsed && !isMobile && (
             <div className="resize-handle-h" onMouseDown={onSidebarResizeStart} />
           )}
 
@@ -1109,6 +1170,16 @@ export default function EditorPage() {
                   <button className="cc-tool-btn" onClick={() => setNewItem({ visible: true, parent: '', type: 'folder', name: '' })} title="New Folder">
                     <FolderPlus size={13} />
                   </button>
+                  {isMobile && (
+                    <button
+                      className="cc-tool-btn"
+                      onClick={() => setIsSidebarCollapsed(true)}
+                      title="Close Drawer"
+                      style={{ marginLeft: 4 }}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1163,6 +1234,15 @@ export default function EditorPage() {
             <div className="cc-search-container">
               <div className="cc-sidebar-header">
                 <span className="cc-sidebar-title">Search Project</span>
+                {isMobile && (
+                  <button
+                    className="cc-tool-btn"
+                    onClick={() => setIsSidebarCollapsed(true)}
+                    title="Close Drawer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
               <div className="cc-search-input-box">
                 <input
@@ -1183,6 +1263,15 @@ export default function EditorPage() {
             <div className="cc-search-container">
               <div className="cc-sidebar-header">
                 <span className="cc-sidebar-title">Collaborators</span>
+                {isMobile && (
+                  <button
+                    className="cc-tool-btn"
+                    onClick={() => setIsSidebarCollapsed(true)}
+                    title="Close Drawer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
               <div style={{ padding: 14, fontSize: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1232,14 +1321,15 @@ export default function EditorPage() {
               })}
             </div>
 
-            {/* Editor Surface: 100% Monaco Editor when preview is off, split view when preview is on */}
+            {/* Editor Surface: 100% Monaco Editor when preview is off, split view on desktop, full-screen on mobile */}
             <div className="cc-editor-surface">
               {/* Monaco Editor Container */}
               <div
                 className="cc-monaco-wrap"
                 style={{
-                  width: isPreviewOpen ? `${splitPct}%` : '100%',
-                  flex: isPreviewOpen ? `0 0 ${splitPct}%` : '1 1 100%',
+                  width: isMobile ? (isPreviewOpen ? '0%' : '100%') : (isPreviewOpen ? `${splitPct}%` : '100%'),
+                  display: isMobile && isPreviewOpen ? 'none' : 'block',
+                  flex: isMobile ? (isPreviewOpen ? '0 0 0%' : '1 1 100%') : (isPreviewOpen ? `0 0 ${splitPct}%` : '1 1 100%'),
                 }}
               >
                 <MonacoEditor
@@ -1257,8 +1347,8 @@ export default function EditorPage() {
                   }}
                   theme="collabcode-dark"
                   options={{
-                    minimap: { enabled: true, maxColumn: 80, renderCharacters: false },
-                    fontSize: 13.5,
+                    minimap: { enabled: !isMobile, maxColumn: 80, renderCharacters: false },
+                    fontSize: isMobile ? 12.5 : 13.5,
                     fontFamily: "'JetBrains Mono', Consolas, monospace",
                     fontLigatures: true,
                     lineNumbers: 'on',
@@ -1270,27 +1360,45 @@ export default function EditorPage() {
                     autoClosingQuotes: 'always',
                     readOnly: !canEdit,
                     automaticLayout: true,
+                    scrollbar: {
+                      verticalScrollbarSize: isMobile ? 6 : 10,
+                      horizontalScrollbarSize: isMobile ? 6 : 10,
+                      alwaysConsumeMouseWheel: false,
+                    },
                   }}
                 />
               </div>
 
-              {/* Split Resizer Handle (Visible ONLY when preview is open) */}
-              {isPreviewOpen && (
+              {/* Split Resizer Handle (Visible ONLY on desktop when preview is open) */}
+              {!isMobile && isPreviewOpen && (
                 <div className="resize-handle-split" onMouseDown={onSplitDragStart} />
               )}
 
-              {/* In-IDE Live Website Preview Pane (Visible ONLY when preview is open) */}
+              {/* In-IDE Live Website Preview Pane (Full width on mobile, split on desktop) */}
               {isPreviewOpen && (
                 <div
-                  className="cc-preview-pane"
+                  className={`cc-preview-pane ${isMobile ? 'mobile-fullscreen' : ''}`}
                   style={{
-                    width: `${100 - splitPct}%`,
-                    flex: `0 0 ${100 - splitPct}%`,
+                    width: isMobile ? '100%' : `${100 - splitPct}%`,
+                    flex: isMobile ? '1 1 100%' : `0 0 ${100 - splitPct}%`,
                   }}
                 >
                   {/* Preview Pane Header */}
                   <div className="cc-preview-pane-header">
                     <div className="cc-preview-pane-title">
+                      {isMobile && (
+                        <button
+                          className="cc-preview-back-btn"
+                          onClick={() => {
+                            setIsPreviewOpen(false);
+                            setTimeout(() => editorRef.current?.layout(), 50);
+                          }}
+                          title="Return to Code Editor"
+                        >
+                          <ArrowLeft size={13} />
+                          <span>Code</span>
+                        </button>
+                      )}
                       <Globe size={13} color="#10b981" />
                       <span>Live Preview</span>
                       <span className="cc-preview-file-tag">{previewFilePath}</span>
@@ -1305,8 +1413,11 @@ export default function EditorPage() {
                       </button>
                       <button
                         className="cc-tool-btn"
-                        onClick={() => setIsPreviewOpen(false)}
-                        title="Close Preview (Return to Full Width Editor)"
+                        onClick={() => {
+                          setIsPreviewOpen(false);
+                          setTimeout(() => editorRef.current?.layout(), 50);
+                        }}
+                        title="Close Preview (Return to Editor)"
                       >
                         <X size={12} />
                       </button>
@@ -1393,6 +1504,91 @@ export default function EditorPage() {
           </div>
         </div>
       </footer>
+
+      {/* ── 5. Mobile Bottom Navigation Bar (Visible on mobile/tablet screens < 768px) ── */}
+      {isMobile && (
+        <nav className="cc-mobile-bottom-bar" aria-label="Mobile workspace navigation">
+          <button
+            className={`cc-mobile-nav-btn ${workspaceMode === 'code' && !isSidebarCollapsed && activeActivityTab === 'explorer' ? 'active' : ''}`}
+            onClick={() => {
+              setWorkspaceMode('code');
+              setActiveActivityTab('explorer');
+              setIsSidebarCollapsed(!isSidebarCollapsed);
+            }}
+            title="Files Explorer"
+          >
+            <Files size={18} />
+            <span>Files</span>
+          </button>
+
+          <button
+            className={`cc-mobile-nav-btn ${workspaceMode === 'code' && !isSidebarCollapsed && activeActivityTab === 'search' ? 'active' : ''}`}
+            onClick={() => {
+              setWorkspaceMode('code');
+              setActiveActivityTab('search');
+              setIsSidebarCollapsed(false);
+            }}
+            title="Search Files"
+          >
+            <Search size={18} />
+            <span>Search</span>
+          </button>
+
+          <button
+            className={`cc-mobile-nav-btn ${workspaceMode === 'code' && isSidebarCollapsed && !isPreviewOpen ? 'active' : ''}`}
+            onClick={() => {
+              setWorkspaceMode('code');
+              setIsSidebarCollapsed(true);
+              setIsPreviewOpen(false);
+              setTimeout(() => editorRef.current?.layout(), 50);
+            }}
+            title="Code Editor"
+          >
+            <Code2 size={18} />
+            <span>Code</span>
+          </button>
+
+          <button
+            className={`cc-mobile-nav-btn ${workspaceMode === 'code' && isPreviewOpen ? 'active preview-active' : ''}`}
+            onClick={() => {
+              setWorkspaceMode('code');
+              setIsSidebarCollapsed(true);
+              setIsPreviewOpen(prev => !prev);
+              setTimeout(() => editorRef.current?.layout(), 50);
+            }}
+            title="Live Web Preview"
+          >
+            <Globe size={18} />
+            <span>Preview</span>
+          </button>
+
+          <button
+            className={`cc-mobile-nav-btn ${workspaceMode === 'ai' ? 'active ai-active' : ''}`}
+            onClick={() => {
+              setWorkspaceMode(prev => prev === 'ai' ? 'code' : 'ai');
+              setIsSidebarCollapsed(true);
+              setIsPreviewOpen(false);
+            }}
+            title="AI Coding Chatbot"
+          >
+            <Sparkles size={18} />
+            <span>AI Chat</span>
+          </button>
+
+          <button
+            className={`cc-mobile-nav-btn ${workspaceMode === 'code' && !isSidebarCollapsed && activeActivityTab === 'collab' ? 'active' : ''}`}
+            onClick={() => {
+              setWorkspaceMode('code');
+              setActiveActivityTab('collab');
+              setIsSidebarCollapsed(!isSidebarCollapsed);
+            }}
+            title="Collaboration"
+          >
+            <Users size={18} />
+            <span>Collab</span>
+          </button>
+        </nav>
+      )}
     </div>
   );
 }
