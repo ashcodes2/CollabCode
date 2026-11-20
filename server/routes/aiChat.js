@@ -268,7 +268,7 @@ router.post('/chat', async (req, res) => {
     while (iteration < MAX_TOOL_ITERATIONS) {
       iteration++;
 
-      const data = await callGroq(apiKey, model, conversationMessages, hasProjectContext);
+      const data = await callGroq(apiKey, model, conversationMessages, true);
       lastData = data;
       const choice = data.choices?.[0];
 
@@ -280,7 +280,7 @@ router.post('/chat', async (req, res) => {
       const finishReason = choice.finish_reason;
 
       // If the LLM wants to call tools
-      if (message.tool_calls && message.tool_calls.length > 0 && hasProjectContext) {
+      if (message.tool_calls && message.tool_calls.length > 0) {
         // Add the assistant message with tool_calls to conversation
         conversationMessages.push(message);
 
@@ -335,10 +335,14 @@ router.post('/chat', async (req, res) => {
       break;
     }
 
-    // Safety: if we exhausted iterations without a final response, make one last call without tools
+    // Safety: if we exhausted iterations without a final response, make one last call with summary prompt
     if (finalContent === null) {
-      console.warn('[AI Agent] Exhausted tool iterations, making final call without tools.');
-      const finalData = await callGroq(apiKey, model, conversationMessages, false);
+      console.warn('[AI Agent] Exhausted tool iterations, making final call for response summary.');
+      conversationMessages.push({
+        role: 'user',
+        content: 'Please summarize your findings into a final response based on the above tool results.',
+      });
+      const finalData = await callGroq(apiKey, model, conversationMessages, true);
       const finalChoice = finalData.choices?.[0]?.message;
       finalContent = finalChoice?.content?.trim() || finalChoice?.reasoning?.trim() || 'I was unable to generate a complete response after analyzing the project. Please try rephrasing your question.';
       lastData = finalData;

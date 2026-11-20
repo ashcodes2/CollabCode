@@ -655,14 +655,14 @@ export default async function handler(req, res) {
     let lastData = null;
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const data = await callGroq(apiKey, model, conversationMessages, hasProject);
+      const data = await callGroq(apiKey, model, conversationMessages, true);
       lastData = data;
       const choice = data.choices?.[0];
       if (!choice) return res.status(502).json({ error: 'No response from Groq API.' });
 
       const msg = choice.message;
 
-      if (msg.tool_calls && msg.tool_calls.length > 0 && hasProject) {
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
         conversationMessages.push(msg);
 
         for (const tc of msg.tool_calls) {
@@ -685,7 +685,11 @@ export default async function handler(req, res) {
     }
 
     if (finalContent === null) {
-      const finalData = await callGroq(apiKey, model, conversationMessages, false);
+      conversationMessages.push({
+        role: 'user',
+        content: 'Please summarize your findings into a final response based on the above tool results.',
+      });
+      const finalData = await callGroq(apiKey, model, conversationMessages, true);
       const fc = finalData.choices?.[0]?.message;
       finalContent = fc?.content?.trim() || fc?.reasoning?.trim() || 'Unable to generate a complete response.';
       lastData = finalData;
