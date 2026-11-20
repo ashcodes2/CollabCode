@@ -1406,7 +1406,7 @@ export default function AiChatWorkspace({
       // 3. Localhost fallback (127.0.0.1:3001) ONLY in local dev environment (http:), NEVER on https: (mixed content)
       const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
       const candidates = ['/api/ai/chat'];
-      if (configuredBackend && !candidates.includes(`${configuredBackend}/api/ai/chat`)) {
+      if (!isHttps && configuredBackend && !candidates.includes(`${configuredBackend}/api/ai/chat`)) {
         candidates.push(`${configuredBackend}/api/ai/chat`);
       }
       if (!isHttps && !candidates.includes('http://127.0.0.1:3001/api/ai/chat')) {
@@ -1448,8 +1448,8 @@ export default function AiChatWorkspace({
             lastErrorMessage = descriptiveError;
             console.warn(`[AI Chat] Endpoint ${endpoint} returned HTTP ${status}:`, descriptiveError);
 
-            // Definitive responses (rate limits, auth errors, bad requests) should not fall through to other endpoints
-            if (status === 429 || status === 401 || status === 400 || status === 404) {
+            // Definitive responses (rate limits, auth errors, bad requests, server errors) should not fall through to other endpoints
+            if (status === 429 || status === 401 || status === 400 || status === 404 || status >= 500) {
               break;
             }
           }
