@@ -13,7 +13,7 @@ import { createExecutionPlan, updatePlanStep } from './taskExecutionEngine.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS = 2;
 
 // ─── Security Rules ────────────────────────────────────────────────────────
 
@@ -567,8 +567,8 @@ If the user asks a question unrelated to programming, politely guide them back t
 
 // ─── Groq API Caller ──────────────────────────────────────────────────────
 
-async function callGroq(apiKey, model, messages, includeTools, retries = 3) {
-  const payload = { model, messages, temperature: 0.6, max_tokens: 4096 };
+async function callGroq(apiKey, model, messages, includeTools, retries = 1) {
+  const payload = { model, messages, temperature: 0.6, max_tokens: 2048 };
   if (includeTools) {
     payload.tools = TOOL_DEFINITIONS;
     payload.tool_choice = 'auto';
@@ -576,7 +576,7 @@ async function callGroq(apiKey, model, messages, includeTools, retries = 3) {
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 55000);
+    const tid = setTimeout(() => controller.abort(), 25000);
     let resp;
     try {
       resp = await fetch(GROQ_API_URL, {
@@ -590,24 +590,24 @@ async function callGroq(apiKey, model, messages, includeTools, retries = 3) {
     }
 
     if (resp.status === 429 && attempt < retries) {
-      let waitMs = 4000 * (attempt + 1);
+      let waitMs = 2500;
       const retryAfter = resp.headers.get('retry-after');
       const resetTokens = resp.headers.get('x-ratelimit-reset-tokens');
 
       if (retryAfter) {
         const sec = parseFloat(retryAfter);
-        if (!isNaN(sec) && sec > 0) waitMs = Math.ceil(sec * 1000) + 600;
+        if (!isNaN(sec) && sec > 0) waitMs = Math.min(3000, Math.ceil(sec * 1000));
       } else if (resetTokens) {
         if (resetTokens.endsWith('ms')) {
           const ms = parseFloat(resetTokens);
-          if (!isNaN(ms)) waitMs = Math.max(1200, ms + 500);
+          if (!isNaN(ms)) waitMs = Math.min(3000, Math.max(1000, ms + 200));
         } else if (resetTokens.endsWith('s')) {
           const s = parseFloat(resetTokens);
-          if (!isNaN(s)) waitMs = Math.ceil(s * 1000) + 700;
+          if (!isNaN(s)) waitMs = Math.min(3000, Math.ceil(s * 1000));
         }
       }
 
-      console.warn(`[AI Chat Vercel] Rate limit 429 received, waiting ${waitMs}ms before retry (attempt ${attempt + 1}/${retries})...`);
+      console.warn(`[AI Chat Vercel] Rate limit 429 received, waiting ${waitMs}ms before retry...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
     }
@@ -688,16 +688,18 @@ export default async function handler(req, res) {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       if (i > 0) {
         // Pacing delay between multi-turn tool calls to allow Groq TPM bucket to replenish
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 400));
       }
-      const data = await callGroq(apiKey, model, conversationMessages, true);
+      // On the final iteration, disable tools so Groq produces a markdown text reply
+      const allowTools = (i < MAX_TOOL_ITERATIONS - 1);
+      const data = await callGroq(apiKey, model, conversationMessages, allowTools);
       lastData = data;
       const choice = data.choices?.[0];
       if (!choice) return res.status(502).json({ error: 'No response from Groq API.' });
 
       const msg = choice.message;
 
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
+      if (msg.tool_calls && msg.tool_calls.length > 0 && allowTools) {
         conversationMessages.push(msg);
 
         for (const tc of msg.tool_calls) {
@@ -719,15 +721,12 @@ export default async function handler(req, res) {
       break;
     }
 
-    if (finalContent === null) {
-      conversationMessages.push({
-        role: 'user',
-        content: 'Please summarize your findings into a final response based on the above tool results.',
-      });
-      const finalData = await callGroq(apiKey, model, conversationMessages, true);
-      const fc = finalData.choices?.[0]?.message;
-      finalContent = fc?.content?.trim() || fc?.reasoning?.trim() || 'Unable to generate a complete response.';
-      lastData = finalData;
+    if (!finalContent) {
+      if (activeTaskPlan) {
+        finalContent = `I have generated an execution plan for "${activeTaskPlan.title}". Please review the steps in the plan card above and click Approve Plan to begin execution.`;
+      } else {
+        finalContent = 'Task completed successfully.';
+      }
     }
 
     return res.status(200).json({

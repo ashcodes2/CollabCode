@@ -10,7 +10,7 @@ const { applyProposal, rejectProposal, getProposal } = require('../tools/proposa
 const { handlePlanUserDecision, controlPlanExecution } = require('../tools/taskExecutionEngine');
 
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS = 2;
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const SYSTEM_PROMPT = `You are CollabCode AI, an intelligent coding agent integrated into a collaborative web development IDE.
@@ -299,11 +299,13 @@ router.post('/chat', async (req, res) => {
     while (iteration < MAX_TOOL_ITERATIONS) {
       if (iteration > 0) {
         // Pacing delay between multi-turn tool calls to allow Groq TPM bucket to replenish
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 400));
       }
       iteration++;
 
-      const data = await callGroq(apiKey, model, conversationMessages, true);
+      // On final iteration, disable tools so Groq generates markdown text
+      const allowTools = (iteration < MAX_TOOL_ITERATIONS);
+      const data = await callGroq(apiKey, model, conversationMessages, allowTools);
       lastData = data;
       const choice = data.choices?.[0];
 
@@ -315,7 +317,7 @@ router.post('/chat', async (req, res) => {
       const finishReason = choice.finish_reason;
 
       // If the LLM wants to call tools
-      if (message.tool_calls && message.tool_calls.length > 0) {
+      if (message.tool_calls && message.tool_calls.length > 0 && allowTools) {
         // Add the assistant message with tool_calls to conversation
         conversationMessages.push(message);
 
@@ -361,7 +363,7 @@ router.post('/chat', async (req, res) => {
           });
         }
 
-        // Continue the loop — the LLM may want to call more tools or generate a final response
+        // Continue the loop — the LLM will generate the final response
         continue;
       }
 
@@ -370,17 +372,12 @@ router.post('/chat', async (req, res) => {
       break;
     }
 
-    // Safety: if we exhausted iterations without a final response, make one last call with summary prompt
-    if (finalContent === null) {
-      console.warn('[AI Agent] Exhausted tool iterations, making final call for response summary.');
-      conversationMessages.push({
-        role: 'user',
-        content: 'Please summarize your findings into a final response based on the above tool results.',
-      });
-      const finalData = await callGroq(apiKey, model, conversationMessages, true);
-      const finalChoice = finalData.choices?.[0]?.message;
-      finalContent = finalChoice?.content?.trim() || finalChoice?.reasoning?.trim() || 'I was unable to generate a complete response after analyzing the project. Please try rephrasing your question.';
-      lastData = finalData;
+    if (!finalContent) {
+      if (activeTaskPlan) {
+        finalContent = `I have generated an execution plan for "${activeTaskPlan.title}". Please review the steps in the plan card above and click Approve Plan to begin execution.`;
+      } else {
+        finalContent = 'Task completed successfully.';
+      }
     }
 
     // Fallback: If no proposal was created via tool_calls, check if the LLM outputted a JSON proposal block
