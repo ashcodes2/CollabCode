@@ -567,34 +567,42 @@ If the user asks a question unrelated to programming, politely guide them back t
 
 // ─── Groq API Caller ──────────────────────────────────────────────────────
 
-async function callGroq(apiKey, model, messages, includeTools) {
+async function callGroq(apiKey, model, messages, includeTools, retries = 2) {
   const payload = { model, messages, temperature: 0.6, max_tokens: 4096 };
   if (includeTools) {
     payload.tools = TOOL_DEFINITIONS;
     payload.tool_choice = 'auto';
   }
 
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 55000);
-  let resp;
-  try {
-    resp = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(tid);
-  }
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 55000);
+    let resp;
+    try {
+      resp = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(tid);
+    }
 
-  if (!resp.ok) {
-    const errBody = await resp.json().catch(() => ({}));
-    const err = new Error(errBody.error?.message || `Groq API HTTP ${resp.status}`);
-    err.status = resp.status;
-    throw err;
+    if (resp.status === 429 && attempt < retries) {
+      console.warn(`[AI Chat Vercel] Rate limit 429 received, backing off 3.5s before retry (attempt ${attempt + 1}/${retries})...`);
+      await new Promise(r => setTimeout(r, 3500));
+      continue;
+    }
+
+    if (!resp.ok) {
+      const errBody = await resp.json().catch(() => ({}));
+      const err = new Error(errBody.error?.message || `Groq API HTTP ${resp.status}`);
+      err.status = resp.status;
+      throw err;
+    }
+    return resp.json();
   }
-  return resp.json();
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────

@@ -1403,12 +1403,13 @@ export default function AiChatWorkspace({
       // Candidate endpoints in priority order:
       // 1. Same-origin relative endpoint '/api/ai/chat' (Vercel Serverless Function in production, Vite dev proxy in dev)
       // 2. Configured external backend (e.g. Render server) if provided
-      // 3. Localhost fallback (127.0.0.1:3001) for local Node server
+      // 3. Localhost fallback (127.0.0.1:3001) ONLY in local dev environment (http:), NEVER on https: (mixed content)
+      const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
       const candidates = ['/api/ai/chat'];
       if (configuredBackend && !candidates.includes(`${configuredBackend}/api/ai/chat`)) {
         candidates.push(`${configuredBackend}/api/ai/chat`);
       }
-      if (!candidates.includes('http://127.0.0.1:3001/api/ai/chat')) {
+      if (!isHttps && !candidates.includes('http://127.0.0.1:3001/api/ai/chat')) {
         candidates.push('http://127.0.0.1:3001/api/ai/chat');
       }
 
@@ -1446,6 +1447,11 @@ export default function AiChatWorkspace({
 
             lastErrorMessage = descriptiveError;
             console.warn(`[AI Chat] Endpoint ${endpoint} returned HTTP ${status}:`, descriptiveError);
+
+            // Definitive responses (rate limits, auth errors, bad requests) should not fall through to other endpoints
+            if (status === 429 || status === 401 || status === 400 || status === 404) {
+              break;
+            }
           }
         } catch (fetchErr) {
           if (fetchErr.name === 'AbortError') {
@@ -1489,9 +1495,12 @@ export default function AiChatWorkspace({
 
       let userFriendlyError = err.message;
       if (err.name === 'AbortError') {
-        userFriendlyError = 'Network timeout: The AI service took longer than 40 seconds to respond. Please try again.';
+        userFriendlyError = 'Network timeout: The AI service took longer than 45 seconds to respond. Please try again.';
       } else if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
-        userFriendlyError = 'Backend unavailable: Could not connect to the CollabCode server on port 3001. Please ensure the backend server is running ("npm run server" or "npm start").';
+        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+        userFriendlyError = isHttps
+          ? 'Network error: Could not reach the AI service. Please check your connection and try again.'
+          : 'Backend unavailable: Could not connect to the CollabCode server on port 3001. Please ensure the backend server is running ("npm run server" or "npm start").';
       }
 
       setErrorMessage(userFriendlyError);
