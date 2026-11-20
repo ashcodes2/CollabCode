@@ -2,6 +2,8 @@
   "rewrites": [
     { "source": "/api/ai/chat", "destination": "/api/ai/chat.js" },
     { "source": "/api/ai/status", "destination": "/api/ai/status.js" },
+    { "source": "/api/ai/proposal/:path*", "destination": "/api/ai/proposal.js" },
+    { "source": "/api/ai/proposal", "destination": "/api/ai/proposal.js" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

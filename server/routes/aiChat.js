@@ -6,6 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 require('dotenv').config();
 
 const { TOOL_DEFINITIONS, executeTool } = require('../tools/projectTools');
+const { applyProposal, rejectProposal, getProposal } = require('../tools/proposalManager');
 
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const MAX_TOOL_ITERATIONS = 5;
@@ -17,13 +18,22 @@ You have access to the user's current project files through these tools:
 - **list_files**: See all files and folders in the project
 - **read_file**: Read the content of any project file
 - **search_code**: Search for keywords, functions, variables, or patterns across all project files
+- **propose_file_edit**: Propose creating a new file or modifying an existing file (HTML, CSS, JS)
+- **propose_file_changes**: Propose changes across multiple files at once
 
 IMPORTANT RULES:
 1. When the user asks about their project, code, or files — ALWAYS use the tools to retrieve actual project data first. NEVER guess or fabricate file contents.
 2. Use list_files to understand the project structure before reading specific files.
 3. Use read_file to get actual file content before explaining, reviewing, or suggesting changes to code.
 4. Use search_code to find where functions, variables, classes, or CSS rules are defined or used.
-5. You may call multiple tools in sequence when needed (e.g., list files, then read relevant ones).
+5. CODE GENERATION & FILE EDITING RULES:
+   - When the user asks to modify, create, update, or add code to their project:
+     a. FIRST inspect relevant existing files with read_file or list_files to understand the existing project structure, styling, and coding conventions.
+     b. Then ALWAYS invoke the propose_file_edit (or propose_file_changes) function tool via tool_calls providing the COMPLETE, usable, updated or new file content. Do NOT print JSON or text proposals instead of invoking the tool.
+     c. NEVER claim you updated a file without invoking propose_file_edit or propose_file_changes.
+     d. The backend will compute a line-by-line diff preview requiring the user to explicitly click Approve before any changes are written.
+     e. Only HTML, CSS, and JavaScript files are supported for editing. Never attempt to edit sensitive files like .env or configuration files.
+     f. Never modify unrelated files.
 6. When reviewing code, read the actual file first, then provide specific feedback with line references.
 7. For general programming questions NOT about the user's project, answer directly without tools.
 
@@ -54,12 +64,9 @@ router.get('/status', (req, res) => {
 });
 
 /**
- * Call Groq API with messages and optional tools
+ * Call Groq API with messages and optional tools, with automatic retry on 429 rate limits
  */
-async function callGroq(apiKey, model, messages, includeTools = false) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 55000);
-
+async function callGroq(apiKey, model, messages, includeTools = false, retries = 2) {
   const payload = {
     model,
     messages,
@@ -72,30 +79,41 @@ async function callGroq(apiKey, model, messages, includeTools = false) {
     payload.tool_choice = 'auto';
   }
 
-  let response;
-  try {
-    response = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
 
-  if (!response.ok) {
-    const errBody = await response.json().catch(() => ({}));
-    const errMsg = errBody.error?.message || `Groq API returned HTTP ${response.status}`;
-    const error = new Error(errMsg);
-    error.status = response.status;
-    throw error;
-  }
+    let response;
+    try {
+      response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
-  return response.json();
+    if (response.status === 429 && attempt < retries) {
+      console.warn(`[AI Agent] Rate limit 429 received, backing off 3.5s before retry (attempt ${attempt + 1}/${retries})...`);
+      await new Promise(r => setTimeout(r, 3500));
+      continue;
+    }
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      const errMsg = errBody.error?.message || `Groq API returned HTTP ${response.status}`;
+      const error = new Error(errMsg);
+      error.status = response.status;
+      throw error;
+    }
+
+    return response.json();
+  }
 }
 
 /**
@@ -170,6 +188,7 @@ router.post('/chat', async (req, res) => {
 
     // Track tool calls for the response
     const toolCallsLog = [];
+    let activeProposal = null;
 
     // ── Agentic Loop: allow up to MAX_TOOL_ITERATIONS rounds ──────────────
     let iteration = 0;
@@ -208,7 +227,11 @@ router.post('/chat', async (req, res) => {
 
           console.log(`[AI Agent] Tool call #${iteration}: ${toolName}(${JSON.stringify(toolArgs)})`);
 
-          const toolResult = executeTool(toolName, toolArgs, fileTree);
+          const toolResult = executeTool(toolName, toolArgs, fileTree, roomId);
+
+          if (toolResult && toolResult.proposal) {
+            activeProposal = toolResult.proposal;
+          }
 
           toolCallsLog.push({
             tool: toolName,
@@ -242,6 +265,22 @@ router.post('/chat', async (req, res) => {
       lastData = finalData;
     }
 
+    // Fallback: If no proposal was created via tool_calls, check if the LLM outputted a JSON proposal block
+    if (!activeProposal && finalContent && hasProjectContext) {
+      const jsonMatch = finalContent.match(/```(?:json)?\s*(\{\s*"path"\s*:\s*"[^"]+".*?\})\s*```/s);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          if (parsed.path && typeof parsed.content === 'string') {
+            const fallbackRes = executeTool('propose_file_edit', parsed, fileTree, roomId);
+            if (fallbackRes.proposal) {
+              activeProposal = fallbackRes.proposal;
+            }
+          }
+        } catch {}
+      }
+    }
+
     return res.json({
       success: true,
       message: {
@@ -250,6 +289,7 @@ router.post('/chat', async (req, res) => {
       },
       model: lastData?.model || model,
       toolCalls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
+      proposal: activeProposal || undefined,
     });
   } catch (error) {
     if (error.name === 'AbortError') {
@@ -283,6 +323,64 @@ router.post('/chat', async (req, res) => {
         ? 'Network error: Backend could not reach api.groq.com. Please check server internet connectivity.'
         : (error.message || 'An internal error occurred while communicating with Groq AI.'),
     });
+  }
+});
+
+/**
+ * POST /api/ai/proposal/apply
+ * Apply an approved proposal after verifying concurrency and integrity
+ */
+router.post('/proposal/apply', (req, res) => {
+  try {
+    const { proposalId, fileTree } = req.body || {};
+
+    if (!proposalId || typeof proposalId !== 'string') {
+      return res.status(400).json({ error: 'proposalId is required.' });
+    }
+
+    const result = applyProposal(proposalId, { currentFileTree: fileTree || {} });
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    return res.json({
+      success: true,
+      proposalId: result.proposalId,
+      appliedChanges: result.appliedChanges,
+    });
+  } catch (err) {
+    console.error('[AI Agent] Proposal apply error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to apply proposal.' });
+  }
+});
+
+/**
+ * POST /api/ai/proposal/reject
+ * Reject a proposal, leaving all files untouched
+ */
+router.post('/proposal/reject', (req, res) => {
+  try {
+    const { proposalId } = req.body || {};
+
+    if (!proposalId || typeof proposalId !== 'string') {
+      return res.status(400).json({ error: 'proposalId is required.' });
+    }
+
+    const result = rejectProposal(proposalId);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    return res.json({
+      success: true,
+      proposalId: result.proposalId,
+      message: result.message,
+    });
+  } catch (err) {
+    console.error('[AI Agent] Proposal reject error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to reject proposal.' });
   }
 });
 

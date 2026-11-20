@@ -1743,6 +1743,336 @@ html, body {
   box-shadow: 0 3px 12px rgba(99, 102, 241, 0.5);
 }
 
+/* ── Diff Preview Component (Phase 2) ────────────────────────── */
+.cc-diff-preview-box {
+  margin-top: 12px;
+  background: #0f1420;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.cc-diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #161d2d;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cc-diff-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.cc-diff-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cc-diff-stat-add {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: #34d399;
+  font-weight: 600;
+}
+
+.cc-diff-stat-del {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: #f87171;
+  font-weight: 600;
+}
+
+.cc-diff-status-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cc-diff-status-pill.pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.cc-diff-status-pill.applied {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.cc-diff-status-pill.rejected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.cc-diff-file-tabs {
+  display: flex;
+  overflow-x: auto;
+  background: #111827;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 4px 8px 0;
+  gap: 4px;
+}
+
+.cc-diff-file-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px 6px 0 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cc-diff-file-tab:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cc-diff-file-tab.active {
+  color: #60a5fa;
+  background: #0f1420;
+  border-top: 2px solid #3b82f6;
+  font-weight: 600;
+}
+
+.cc-diff-action-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.cc-diff-action-tag.create {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.cc-diff-action-tag.modify {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.cc-diff-explanation {
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-style: italic;
+}
+
+.cc-diff-view-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px 12px;
+  gap: 8px;
+  background: #111726;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.cc-diff-mode-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.cc-diff-mode-btn.active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: #6366f1;
+  color: #c7d2fe;
+}
+
+.cc-diff-content-scroll {
+  max-height: 380px;
+  overflow-y: auto;
+  overflow-x: auto;
+  background: #090d16;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cc-diff-line {
+  display: flex;
+  min-width: 100%;
+  padding: 1px 0;
+  user-select: text;
+}
+
+.cc-diff-line.added {
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.cc-diff-line.deleted {
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.cc-diff-line.unchanged {
+  background: transparent;
+}
+
+.cc-diff-line-num {
+  width: 44px;
+  text-align: right;
+  padding-right: 10px;
+  color: #475569;
+  user-select: none;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.cc-diff-line.added .cc-diff-line-num {
+  color: #059669;
+}
+
+.cc-diff-line.deleted .cc-diff-line-num {
+  color: #dc2626;
+}
+
+.cc-diff-sign {
+  width: 18px;
+  text-align: center;
+  font-weight: 700;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.cc-diff-line.added .cc-diff-sign {
+  color: #34d399;
+}
+
+.cc-diff-line.deleted .cc-diff-sign {
+  color: #f87171;
+}
+
+.cc-diff-line.unchanged .cc-diff-sign {
+  color: transparent;
+}
+
+.cc-diff-text {
+  flex: 1;
+  white-space: pre;
+  padding-right: 12px;
+  color: #cbd5e1;
+}
+
+.cc-diff-line.added .cc-diff-text {
+  color: #a7f3d0;
+}
+
+.cc-diff-line.deleted .cc-diff-text {
+  color: #fca5a5;
+}
+
+.cc-diff-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #141b2a;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cc-diff-actions-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cc-diff-approve-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff;
+  border: 1px solid #10b981;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.cc-diff-approve-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #047857 0%, #059669 100%);
+  transform: translateY(-0.5px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.45);
+}
+
+.cc-diff-reject-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cc-diff-reject-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+
+.cc-diff-approve-btn:disabled,
+.cc-diff-reject-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.cc-diff-resolved-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cc-diff-resolved-msg.applied {
+  color: #34d399;
+}
+
+.cc-diff-resolved-msg.rejected {
+  color: #94a3b8;
+}
+
 /* Animations */
 @keyframes pulse-dot {
   0%, 100% { opacity: 0.6; transform: scale(1); }

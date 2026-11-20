@@ -14,9 +14,10 @@ import 'prismjs/components/prism-markup';
 import 'prismjs/components/prism-markdown';
 import 'prismjs/components/prism-sql';
 import {
-  Sparkles, Send, Trash2, RotateCcw, Copy, Check,
+  Sparkles, Send, Trash2, RotateCcw, Copy, Check, X,
   Bot, User, Code2, AlertCircle, ArrowLeft, Terminal,
-  ExternalLink, Lightbulb
+  ExternalLink, Lightbulb, FileCode, CheckCircle2,
+  XCircle, Layers, FilePlus, FileEdit, Eye, AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -184,6 +185,203 @@ function FormattedMessage({ content }) {
   );
 }
 
+// ── Diff Preview Component (Phase 2: Code Generation & Editing) ──────────────
+function DiffPreview({ proposal, onApprove, onReject }) {
+  const [activeFileIndex, setActiveFileIndex] = useState(0);
+  const [viewMode, setViewMode] = useState('diff'); // 'diff' | 'full'
+  const [status, setStatus] = useState(proposal?.status || 'pending');
+  const [error, setError] = useState(null);
+
+  // Sync status if parent proposal changes
+  useEffect(() => {
+    if (proposal?.status && proposal.status !== status) {
+      setStatus(proposal.status);
+    }
+  }, [proposal?.status]);
+
+  const changes = proposal?.changes || [];
+  const currentFile = changes[activeFileIndex] || changes[0];
+
+  const totalAdditions = useMemo(() => {
+    return changes.reduce((acc, c) => acc + (c.stats?.additions || 0), 0);
+  }, [changes]);
+
+  const totalDeletions = useMemo(() => {
+    return changes.reduce((acc, c) => acc + (c.stats?.deletions || 0), 0);
+  }, [changes]);
+
+  const handleApprove = async () => {
+    if (status !== 'pending' || !onApprove) return;
+    setStatus('approving');
+    setError(null);
+    try {
+      await onApprove(proposal);
+      setStatus('applied');
+    } catch (err) {
+      setStatus('pending');
+      setError(err.message || 'Failed to apply proposal.');
+    }
+  };
+
+  const handleReject = async () => {
+    if (status !== 'pending' || !onReject) return;
+    setStatus('rejecting');
+    setError(null);
+    try {
+      await onReject(proposal);
+      setStatus('rejected');
+    } catch (err) {
+      setStatus('pending');
+      setError(err.message || 'Failed to reject proposal.');
+    }
+  };
+
+  if (!proposal || changes.length === 0) return null;
+
+  return (
+    <div className="cc-diff-preview-box">
+      {/* Header */}
+      <div className="cc-diff-header">
+        <div className="cc-diff-header-title">
+          <FileCode size={16} color="#818cf8" />
+          <span>Proposed Changes ({changes.length} {changes.length === 1 ? 'file' : 'files'})</span>
+        </div>
+        <div className="cc-diff-header-meta">
+          <span className="cc-diff-stat-add">+{totalAdditions}</span>
+          <span className="cc-diff-stat-del">-{totalDeletions}</span>
+          <span className={`cc-diff-status-pill ${status}`}>
+            {status === 'pending' ? 'Review Required' : status === 'applied' ? 'Approved & Applied' : status === 'rejected' ? 'Rejected' : status}
+          </span>
+        </div>
+      </div>
+
+      {/* File selector tabs if multiple files */}
+      {changes.length > 1 && (
+        <div className="cc-diff-file-tabs">
+          {changes.map((c, idx) => (
+            <button
+              key={c.path}
+              type="button"
+              className={`cc-diff-file-tab ${idx === activeFileIndex ? 'active' : ''}`}
+              onClick={() => setActiveFileIndex(idx)}
+            >
+              <span className={`cc-diff-action-tag ${c.action}`}>
+                {c.action === 'create' ? '+ CREATE' : '✎ EDIT'}
+              </span>
+              <span>{c.path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Explanation banner if present */}
+      {currentFile?.explanation && (
+        <div className="cc-diff-explanation">
+          💡 {currentFile.explanation}
+        </div>
+      )}
+
+      {/* View Toggle */}
+      <div className="cc-diff-view-toggle">
+        {changes.length === 1 && (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>
+            <span className={`cc-diff-action-tag ${currentFile?.action}`}>
+              {currentFile?.action === 'create' ? '+ CREATE' : '✎ MODIFY'}
+            </span>
+            <span>{currentFile?.path}</span>
+          </div>
+        )}
+        <button
+          type="button"
+          className={`cc-diff-mode-btn ${viewMode === 'diff' ? 'active' : ''}`}
+          onClick={() => setViewMode('diff')}
+        >
+          Line Diff
+        </button>
+        <button
+          type="button"
+          className={`cc-diff-mode-btn ${viewMode === 'full' ? 'active' : ''}`}
+          onClick={() => setViewMode('full')}
+        >
+          Full Code
+        </button>
+      </div>
+
+      {/* Diff / Code Body */}
+      <div className="cc-diff-content-scroll">
+        {viewMode === 'diff' ? (
+          <div>
+            {(currentFile?.diff || []).map((line, lIdx) => {
+              const lineType = line.type; // 'added' | 'deleted' | 'unchanged'
+              const lineNum = lineType === 'deleted' ? line.originalLine : line.proposedLine;
+              const sign = lineType === 'added' ? '+' : lineType === 'deleted' ? '-' : ' ';
+              return (
+                <div key={lIdx} className={`cc-diff-line ${lineType}`}>
+                  <span className="cc-diff-line-num">{lineNum || ''}</span>
+                  <span className="cc-diff-sign">{sign}</span>
+                  <span className="cc-diff-text">{line.text}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <pre style={{ margin: 0, padding: '10px 14px', color: '#e2e8f0', fontSize: 12, overflowX: 'auto' }}>
+            <code>{currentFile?.proposedContent}</code>
+          </pre>
+        )}
+      </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div style={{ padding: '8px 14px', background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', fontSize: 12, borderTop: '1px solid rgba(239, 68, 68, 0.3)' }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="cc-diff-actions">
+        {status === 'pending' || status === 'approving' || status === 'rejecting' ? (
+          <>
+            <div style={{ fontSize: 11, color: '#94a3b8' }}>
+              Changes will not modify files until you approve.
+            </div>
+            <div className="cc-diff-actions-buttons">
+              <button
+                type="button"
+                className="cc-diff-reject-btn"
+                onClick={handleReject}
+                disabled={status !== 'pending'}
+              >
+                <X size={13} />
+                <span>{status === 'rejecting' ? 'Rejecting...' : 'Reject Changes'}</span>
+              </button>
+              <button
+                type="button"
+                className="cc-diff-approve-btn"
+                onClick={handleApprove}
+                disabled={status !== 'pending'}
+              >
+                <Check size={13} />
+                <span>{status === 'approving' ? 'Applying...' : 'Approve & Apply'}</span>
+              </button>
+            </div>
+          </>
+        ) : status === 'applied' ? (
+          <div className="cc-diff-resolved-msg applied">
+            <CheckCircle2 size={15} />
+            <span>Changes approved and applied to your project.</span>
+          </div>
+        ) : (
+          <div className="cc-diff-resolved-msg rejected">
+            <XCircle size={15} />
+            <span>Changes rejected. All files left untouched.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Dedicated CollabCode AI Chat Workspace Component ──────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
@@ -210,6 +408,8 @@ export default function AiChatWorkspace({
   errorMessage: parentErrorMessage,
   setErrorMessage: parentSetErrorMessage,
   isVisible = true,
+  onApproveProposal,
+  onRejectProposal,
 }) {
   const [internalMessages, setInternalMessages] = useState(DEFAULT_AI_MESSAGES);
   const messages = parentMessages !== undefined ? parentMessages : internalMessages;
@@ -379,6 +579,7 @@ export default function AiChatWorkspace({
         role: 'assistant',
         content: data.message.content,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        proposal: data.proposal || null,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -513,6 +714,14 @@ export default function AiChatWorkspace({
                     </div>
 
                     <FormattedMessage content={msg.content} />
+
+                    {msg.proposal && (
+                      <DiffPreview
+                        proposal={msg.proposal}
+                        onApprove={(prop) => onApproveProposal ? onApproveProposal(prop) : Promise.resolve()}
+                        onReject={(prop) => onRejectProposal ? onRejectProposal(prop) : Promise.resolve()}
+                      />
+                    )}
                   </div>
                 </div>
               );

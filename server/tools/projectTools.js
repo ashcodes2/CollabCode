@@ -208,6 +208,63 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_file_edit',
+      description:
+        'Propose creating a new file or modifying an existing file in the active project. ' +
+        'This generates a diff preview that the user reviews and explicitly approves before any file is touched. ' +
+        'Always read relevant files with read_file first so you follow existing conventions. ' +
+        'Only HTML, CSS, and JavaScript files can be generated or edited.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'The path of the file to edit or create (e.g. "index.html", "style.css", "script.js", "contact.html").',
+          },
+          content: {
+            type: 'string',
+            description: 'The complete, usable new or updated content for the file.',
+          },
+          explanation: {
+            type: 'string',
+            description: 'Brief summary of what was added or modified.',
+          },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_file_changes',
+      description:
+        'Propose changes to multiple files at once (e.g. modifying index.html and style.css together). ' +
+        'Generates diff previews requiring user approval before applying.',
+      parameters: {
+        type: 'object',
+        properties: {
+          changes: {
+            type: 'array',
+            description: 'Array of file edits or creations.',
+            items: {
+              type: 'object',
+              properties: {
+                path: { type: 'string', description: 'File path to create or edit.' },
+                content: { type: 'string', description: 'Complete updated or new file content.' },
+                explanation: { type: 'string', description: 'Summary of changes for this file.' },
+              },
+              required: ['path', 'content'],
+            },
+          },
+        },
+        required: ['changes'],
+      },
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -451,6 +508,65 @@ function executeSearchCode(fileTree, args) {
   };
 }
 
+/**
+ * propose_file_edit: Propose creating or modifying a single file in the project
+ */
+function executeProposeFileEdit(fileTree, args, roomId = null) {
+  if (!args.path || typeof args.content !== 'string') {
+    return { success: false, error: 'Both "path" and "content" are required to propose a file edit.' };
+  }
+
+  const { createProposal } = require('./proposalManager');
+  const result = createProposal({
+    roomId,
+    items: [
+      {
+        path: args.path,
+        content: args.content,
+        explanation: args.explanation || '',
+      },
+    ],
+    fileTree: fileTree || {},
+  });
+
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
+
+  return {
+    success: true,
+    message: `Proposed edit for "${args.path}" created with ID ${result.proposal.proposalId}. A line-by-line diff preview has been prepared for the user. Awaiting explicit user approval before applying changes.`,
+    proposal: result.proposal,
+  };
+}
+
+/**
+ * propose_file_changes: Propose changes across multiple files at once
+ */
+function executeProposeFileChanges(fileTree, args, roomId = null) {
+  if (!Array.isArray(args.changes) || args.changes.length === 0) {
+    return { success: false, error: 'A non-empty "changes" array is required.' };
+  }
+
+  const { createProposal } = require('./proposalManager');
+  const result = createProposal({
+    roomId,
+    items: args.changes,
+    fileTree: fileTree || {},
+  });
+
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
+
+  const affected = result.proposal.changes.map(c => c.path).join(', ');
+  return {
+    success: true,
+    message: `Proposed changes for [${affected}] created with ID ${result.proposal.proposalId}. A line-by-line diff preview has been prepared for the user. Awaiting explicit user approval before applying changes.`,
+    proposal: result.proposal,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main tool executor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -460,9 +576,10 @@ function executeSearchCode(fileTree, args) {
  * @param {string} toolName - The function name to execute
  * @param {object} args - Parsed arguments from the LLM
  * @param {object} fileTree - The active project's file tree
+ * @param {string|null} [roomId] - Active room ID
  * @returns {object} Tool execution result
  */
-function executeTool(toolName, args, fileTree) {
+function executeTool(toolName, args, fileTree, roomId = null) {
   switch (toolName) {
     case 'list_files':
       return executeListFiles(fileTree, args || {});
@@ -470,6 +587,10 @@ function executeTool(toolName, args, fileTree) {
       return executeReadFile(fileTree, args || {});
     case 'search_code':
       return executeSearchCode(fileTree, args || {});
+    case 'propose_file_edit':
+      return executeProposeFileEdit(fileTree, args || {}, roomId);
+    case 'propose_file_changes':
+      return executeProposeFileChanges(fileTree, args || {}, roomId);
     default:
       return { success: false, error: `Unknown tool: "${toolName}"` };
   }
@@ -478,6 +599,8 @@ function executeTool(toolName, args, fileTree) {
 module.exports = {
   TOOL_DEFINITIONS,
   executeTool,
+  executeProposeFileEdit,
+  executeProposeFileChanges,
   sanitizeProjectPath,
   isExcludedOrSensitive,
 };

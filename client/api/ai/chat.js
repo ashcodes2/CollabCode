@@ -2,9 +2,11 @@
  * Vercel Serverless Function: /api/ai/chat
  *
  * AI Agent with tool-calling support via Groq API.
- * Runs in isolated serverless execution environment.
+ * Phase 2: Project understanding, code generation, and controlled file editing.
  * Tools operate strictly within the user's active clientFileTree.
  */
+
+import crypto from 'crypto';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
@@ -27,13 +29,24 @@ const SENSITIVE_PATTERNS = [
 ];
 
 const BINARY_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg',
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico',
   '.woff', '.woff2', '.ttf', '.eot', '.otf',
   '.mp3', '.mp4', '.avi', '.mov', '.webm', '.ogg',
   '.zip', '.tar', '.gz', '.rar', '.7z',
   '.pdf', '.doc', '.docx', '.xls', '.xlsx',
   '.exe', '.dll', '.so', '.dylib', '.wasm',
 ]);
+
+const ALLOWED_CODE_EXTENSIONS = new Set([
+  '.html', '.htm',
+  '.css',
+  '.js', '.jsx', '.mjs', '.cjs',
+  '.ts', '.tsx',
+  '.json',
+  '.svg',
+]);
+
+const MAX_EDIT_FILE_SIZE = 100 * 1024; // 100KB
 
 function sanitizePath(raw) {
   if (typeof raw !== 'string') return { valid: false, error: 'Path must be a string.' };
@@ -76,6 +89,90 @@ function isSensitive(filePath) {
 function isBinary(p) {
   const ext = (p.match(/\.[^.]+$/) || [''])[0].toLowerCase();
   return BINARY_EXTENSIONS.has(ext);
+}
+
+function getFileExt(fp) {
+  return (fp.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+}
+
+function getLanguageFromExt(fp) {
+  const ext = getFileExt(fp);
+  switch (ext) {
+    case '.html':
+    case '.htm':
+    case '.svg':
+      return 'html';
+    case '.css':
+      return 'css';
+    case '.js':
+    case '.mjs':
+    case '.cjs':
+      return 'javascript';
+    case '.jsx':
+      return 'jsx';
+    case '.ts':
+      return 'typescript';
+    case '.tsx':
+      return 'tsx';
+    case '.json':
+      return 'json';
+    default:
+      return 'plaintext';
+  }
+}
+
+// ─── LCS Diff Engine ────────────────────────────────────────────────────────
+
+function computeLineDiff(originalText = '', proposedText = '') {
+  const origLines = (originalText || '').split(/\r?\n/);
+  const propLines = (proposedText || '').split(/\r?\n/);
+
+  const n = origLines.length;
+  const m = propLines.length;
+
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      if (origLines[i - 1] === propLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const diff = [];
+  let i = n;
+  let j = m;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && origLines[i - 1] === propLines[j - 1]) {
+      diff.unshift({ type: 'unchanged', originalLine: i, proposedLine: j, text: origLines[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      diff.unshift({ type: 'added', proposedLine: j, text: propLines[j - 1] });
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+      diff.unshift({ type: 'deleted', originalLine: i, text: origLines[i - 1] });
+      i--;
+    }
+  }
+
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff) {
+    if (line.type === 'added') additions++;
+    if (line.type === 'deleted') deletions++;
+  }
+
+  const unifiedLines = diff.map(line => {
+    if (line.type === 'added') return '+' + line.text;
+    if (line.type === 'deleted') return '-' + line.text;
+    return ' ' + line.text;
+  });
+
+  return { lines: diff, additions, deletions, unifiedText: unifiedLines.join('\n') };
 }
 
 // ─── Tool Definitions & Execution ──────────────────────────────────────────
@@ -124,7 +221,113 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_file_edit',
+      description:
+        'Propose creating a new file or modifying an existing file in the active project. ' +
+        'Generates a diff preview that the user reviews and explicitly approves before any file is touched. ' +
+        'Always read relevant files with read_file first. Only HTML, CSS, and JavaScript files can be edited.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'The file path to edit or create (e.g. "index.html", "style.css", "contact.html").' },
+          content: { type: 'string', description: 'The complete, usable new or updated content for the file.' },
+          explanation: { type: 'string', description: 'Brief summary of what was added or modified.' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_file_changes',
+      description:
+        'Propose changes across multiple files at once. Generates diff previews requiring user approval before applying.',
+      parameters: {
+        type: 'object',
+        properties: {
+          changes: {
+            type: 'array',
+            description: 'Array of file edits or creations.',
+            items: {
+              type: 'object',
+              properties: {
+                path: { type: 'string', description: 'File path to create or edit.' },
+                content: { type: 'string', description: 'Complete updated or new file content.' },
+                explanation: { type: 'string', description: 'Summary of changes for this file.' },
+              },
+              required: ['path', 'content'],
+            },
+          },
+        },
+        required: ['changes'],
+      },
+    },
+  },
 ];
+
+function buildProposal(items, fileTree) {
+  const validatedChanges = [];
+
+  for (const item of items) {
+    const s = sanitizePath(item.path);
+    if (!s.valid) return { success: false, error: `Invalid path for "${item.path}": ${s.error}` };
+    const fp = s.path;
+
+    if (isSensitive(fp)) {
+      return { success: false, error: `Access denied: "${fp}" is protected and cannot be modified.` };
+    }
+
+    const ext = getFileExt(fp);
+    if (!ext || !ALLOWED_CODE_EXTENSIONS.has(ext)) {
+      return { success: false, error: `Unsupported file type "${ext}": Only HTML, CSS, and JavaScript files are allowed.` };
+    }
+
+    if (typeof item.content !== 'string') {
+      return { success: false, error: `Content for "${fp}" must be a string.` };
+    }
+
+    if (item.content.length > MAX_EDIT_FILE_SIZE) {
+      return { success: false, error: `Content for "${fp}" exceeds size limit.` };
+    }
+
+    const existingNode = fileTree ? fileTree[fp] : null;
+    const isNew = !existingNode;
+    const originalContent = existingNode ? (existingNode.value ?? '') : '';
+    const originalHash = crypto.createHash('sha256').update(originalContent).digest('hex');
+    const diff = computeLineDiff(originalContent, item.content);
+
+    validatedChanges.push({
+      path: fp,
+      action: isNew ? 'create' : 'modify',
+      language: existingNode?.language || getLanguageFromExt(fp),
+      originalContent,
+      proposedContent: item.content,
+      explanation: typeof item.explanation === 'string' ? item.explanation.trim() : '',
+      diff: diff.lines,
+      unifiedText: diff.unifiedText,
+      stats: { additions: diff.additions, deletions: diff.deletions },
+      originalHash,
+    });
+  }
+
+  const proposalId = 'prop_' + crypto.randomBytes(16).toString('hex');
+  const now = Date.now();
+
+  return {
+    success: true,
+    proposal: {
+      proposalId,
+      createdAt: now,
+      expiresAt: now + 15 * 60 * 1000,
+      status: 'pending',
+      changes: validatedChanges,
+    },
+  };
+}
 
 function executeTool(name, args, fileTree) {
   if (!fileTree || typeof fileTree !== 'object') {
@@ -185,7 +388,7 @@ function executeTool(name, args, fileTree) {
     for (const [fp, node] of Object.entries(fileTree)) {
       if (isSensitive(fp) || node.type === 'folder' || isBinary(fp)) continue;
       if (pattern) {
-        const ext = (fp.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+        const ext = getFileExt(fp);
         if (ext !== pattern && !fp.toLowerCase().endsWith(pattern)) continue;
       }
       const content = node.value || '';
@@ -208,6 +411,33 @@ function executeTool(name, args, fileTree) {
     return { success: true, message: `Found ${results.length} match(es) across ${searched} file(s).`, results };
   }
 
+  if (name === 'propose_file_edit') {
+    if (!args.path || typeof args.content !== 'string') {
+      return { success: false, error: 'Both "path" and "content" are required to propose a file edit.' };
+    }
+    const res = buildProposal([{ path: args.path, content: args.content, explanation: args.explanation }], fileTree);
+    if (!res.success) return { success: false, error: res.error };
+    return {
+      success: true,
+      message: `Proposed edit for "${args.path}" created with ID ${res.proposal.proposalId}. Diff preview generated for user review and approval.`,
+      proposal: res.proposal,
+    };
+  }
+
+  if (name === 'propose_file_changes') {
+    if (!Array.isArray(args.changes) || args.changes.length === 0) {
+      return { success: false, error: 'A non-empty "changes" array is required.' };
+    }
+    const res = buildProposal(args.changes, fileTree);
+    if (!res.success) return { success: false, error: res.error };
+    const affected = res.proposal.changes.map(c => c.path).join(', ');
+    return {
+      success: true,
+      message: `Proposed changes for [${affected}] created with ID ${res.proposal.proposalId}. Diff preview generated for user review and approval.`,
+      proposal: res.proposal,
+    };
+  }
+
   return { success: false, error: `Unknown tool: "${name}"` };
 }
 
@@ -219,13 +449,22 @@ You have access to the user's current project files through these tools:
 - **list_files**: See all files and folders in the project
 - **read_file**: Read the content of any project file
 - **search_code**: Search for keywords, functions, variables, or patterns across all project files
+- **propose_file_edit**: Propose creating a new file or modifying an existing file (HTML, CSS, JS)
+- **propose_file_changes**: Propose changes across multiple files at once
 
 IMPORTANT RULES:
 1. When the user asks about their project, code, or files — ALWAYS use the tools to retrieve actual project data first. NEVER guess or fabricate file contents.
 2. Use list_files to understand the project structure before reading specific files.
 3. Use read_file to get actual file content before explaining, reviewing, or suggesting changes to code.
 4. Use search_code to find where functions, variables, classes, or CSS rules are defined or used.
-5. You may call multiple tools in sequence when needed.
+5. CODE GENERATION & FILE EDITING RULES:
+   - When the user asks to modify, create, update, or add code to their project:
+     a. FIRST inspect relevant existing files with read_file or list_files to understand existing structure, styling, and coding conventions.
+     b. Then ALWAYS invoke propose_file_edit (or propose_file_changes) providing the COMPLETE, usable, updated or new file content.
+     c. NEVER output snippets claiming you updated a file without calling propose_file_edit or propose_file_changes.
+     d. The backend will compute a line-by-line diff preview requiring the user to explicitly click Approve before any changes are written.
+     e. Only HTML, CSS, and JavaScript files are supported for editing. Never attempt to edit sensitive files like .env or configuration files.
+     f. Never modify unrelated files.
 6. When reviewing code, read the actual file first, then provide specific feedback with line references.
 7. For general programming questions NOT about the user's project, answer directly without tools.
 
@@ -235,36 +474,44 @@ When providing code, use properly formatted Markdown code blocks with language t
 
 If the user asks a question unrelated to programming, politely guide them back to software engineering and coding topics.`;
 
-// ─── Groq API Caller ──────────────────────────────────────────────────────
+// ─── Groq API Caller with Rate Limit Retry ───────────────────────────────
 
-async function callGroq(apiKey, model, messages, includeTools) {
+async function callGroq(apiKey, model, messages, includeTools, retries = 2) {
   const payload = { model, messages, temperature: 0.6, max_tokens: 4096 };
   if (includeTools) {
     payload.tools = TOOL_DEFINITIONS;
     payload.tool_choice = 'auto';
   }
 
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 55000);
-  let resp;
-  try {
-    resp = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(tid);
-  }
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 55000);
+    let resp;
+    try {
+      resp = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(tid);
+    }
 
-  if (!resp.ok) {
-    const errBody = await resp.json().catch(() => ({}));
-    const err = new Error(errBody.error?.message || `Groq API HTTP ${resp.status}`);
-    err.status = resp.status;
-    throw err;
+    if (resp.status === 429 && attempt < retries) {
+      console.warn(`[AI Chat] Rate limit 429 received, backing off 3.5s before retry (${attempt + 1}/${retries})...`);
+      await new Promise(r => setTimeout(r, 3500));
+      continue;
+    }
+
+    if (!resp.ok) {
+      const errBody = await resp.json().catch(() => ({}));
+      const err = new Error(errBody.error?.message || `Groq API HTTP ${resp.status}`);
+      err.status = resp.status;
+      throw err;
+    }
+    return resp.json();
   }
-  return resp.json();
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────
@@ -310,6 +557,7 @@ export default async function handler(req, res) {
 
     const hasProject = !!fileTree;
     const toolCallsLog = [];
+    let activeProposal = null;
     let finalContent = null;
     let lastData = null;
 
@@ -330,6 +578,11 @@ export default async function handler(req, res) {
           try { toolArgs = JSON.parse(tc.function?.arguments || '{}'); } catch {}
 
           const result = executeTool(toolName, toolArgs, fileTree);
+
+          if (result && result.proposal) {
+            activeProposal = result.proposal;
+          }
+
           toolCallsLog.push({ tool: toolName, args: toolArgs, success: result.success !== false });
           conversationMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         }
@@ -347,11 +600,28 @@ export default async function handler(req, res) {
       lastData = finalData;
     }
 
+    // Fallback: If no proposal was created via tool_calls, check if the LLM outputted a JSON proposal block
+    if (!activeProposal && finalContent && hasProject) {
+      const jsonMatch = finalContent.match(/```(?:json)?\s*(\{\s*"path"\s*:\s*"[^"]+".*?\})\s*```/s);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          if (parsed.path && typeof parsed.content === 'string') {
+            const fallbackRes = executeTool('propose_file_edit', parsed, fileTree);
+            if (fallbackRes.proposal) {
+              activeProposal = fallbackRes.proposal;
+            }
+          }
+        } catch {}
+      }
+    }
+
     return res.status(200).json({
       success: true,
       message: { role: 'assistant', content: finalContent },
       model: lastData?.model || model,
       toolCalls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
+      proposal: activeProposal || undefined,
     });
   } catch (error) {
     if (error.name === 'AbortError') {

@@ -851,6 +851,170 @@ export default function EditorPage() {
     });
   }, [activeFilePath]);
 
+  // ── AI Proposal Approval & Rejection Handlers (Phase 2) ───────────────────
+  const handleApproveProposal = useCallback(async (proposal) => {
+    if (!proposal || !proposal.proposalId) return { success: false, error: 'Invalid proposal' };
+
+    try {
+      const rawBackend = import.meta.env.VITE_BACKEND_URL;
+      const configuredBackend = typeof rawBackend === 'string' && rawBackend.trim() ? rawBackend.trim().replace(/\/+$/, '') : null;
+      const candidates = ['/api/ai/proposal/apply', '/api/ai/proposal'];
+      if (configuredBackend) {
+        candidates.push(`${configuredBackend}/api/ai/proposal/apply`);
+      }
+      candidates.push('http://127.0.0.1:3001/api/ai/proposal/apply');
+
+      let response = null;
+      for (const url of candidates) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'apply',
+              proposalId: proposal.proposalId,
+              proposal,
+              fileTree,
+            }),
+          });
+          if (res.ok) {
+            response = await res.json();
+            break;
+          } else if (res.status === 409 || res.status === 400) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `Server rejected approval with HTTP ${res.status}`);
+          }
+        } catch (e) {
+          if (e.message && (e.message.includes('Concurrent modification') || e.message.includes('Server rejected'))) {
+            throw e;
+          }
+        }
+      }
+
+      const appliedChanges = response?.appliedChanges || proposal.changes.map(c => ({
+        path: c.path,
+        action: c.action,
+        content: c.proposedContent,
+        language: c.language,
+      }));
+
+      const newlyCreatedPaths = [];
+
+      // 1. Update fileTree state
+      setFileTree(prev => {
+        const nextTree = { ...prev };
+        for (const change of appliedChanges) {
+          const filePath = change.path;
+          const isNew = !prev[filePath];
+          if (isNew) newlyCreatedPaths.push(filePath);
+
+          nextTree[filePath] = {
+            type: 'file',
+            name: filePath.split('/').pop(),
+            language: change.language || inferLanguage(filePath),
+            value: change.content,
+          };
+        }
+        return nextTree;
+      });
+
+      // 2. Synchronize Yjs docs and broadcast changes via Socket.io
+      for (const change of appliedChanges) {
+        const filePath = change.path;
+        const content = change.content;
+
+        let doc = yjsDocs.current.get(filePath);
+        if (!doc) {
+          doc = new Y.Doc();
+          yjsDocs.current.set(filePath, doc);
+        }
+        applyTextDiff(doc.getText('content'), content);
+
+        if (socketRef.current?.connected) {
+          socketRef.current.emit('tree-change', {
+            op: 'add',
+            path: filePath,
+            node: {
+              type: 'file',
+              name: filePath.split('/').pop(),
+              language: change.language || inferLanguage(filePath),
+              value: content,
+            },
+          });
+        }
+      }
+
+      // 3. Open modified/created files in tabs
+      for (const p of newlyCreatedPaths) {
+        setOpenTabs(tabs => tabs.includes(p) ? tabs : [...tabs, p]);
+      }
+      if (appliedChanges.length > 0) {
+        const firstPath = appliedChanges[0].path;
+        setActiveFilePath(firstPath);
+        setOpenTabs(tabs => tabs.includes(firstPath) ? tabs : [...tabs, firstPath]);
+        if (firstPath.endsWith('.html')) setPreviewFilePath(firstPath);
+      }
+
+      // 4. Update message status in aiMessages
+      setAiMessages(prev => prev.map(m => {
+        if (m.proposal && m.proposal.proposalId === proposal.proposalId) {
+          return {
+            ...m,
+            proposal: { ...m.proposal, status: 'applied' },
+          };
+        }
+        return m;
+      }));
+
+      addToast(`Applied changes to ${appliedChanges.length} file(s) successfully!`, 'success');
+      return { success: true };
+    } catch (err) {
+      console.error('[AI Proposal] Approval error:', err);
+      addToast(`Approval failed: ${err.message}`, 'error');
+      throw err;
+    }
+  }, [fileTree, applyTextDiff, addToast]);
+
+  const handleRejectProposal = useCallback(async (proposal) => {
+    if (!proposal || !proposal.proposalId) return { success: false };
+
+    try {
+      const rawBackend = import.meta.env.VITE_BACKEND_URL;
+      const configuredBackend = typeof rawBackend === 'string' && rawBackend.trim() ? rawBackend.trim().replace(/\/+$/, '') : null;
+      const candidates = ['/api/ai/proposal/reject', '/api/ai/proposal'];
+      if (configuredBackend) {
+        candidates.push(`${configuredBackend}/api/ai/proposal/reject`);
+      }
+      candidates.push('http://127.0.0.1:3001/api/ai/proposal/reject');
+
+      for (const url of candidates) {
+        try {
+          await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'reject', proposalId: proposal.proposalId }),
+          });
+          break;
+        } catch {}
+      }
+
+      setAiMessages(prev => prev.map(m => {
+        if (m.proposal && m.proposal.proposalId === proposal.proposalId) {
+          return {
+            ...m,
+            proposal: { ...m.proposal, status: 'rejected' },
+          };
+        }
+        return m;
+      }));
+
+      addToast('Proposed changes rejected. Files left untouched.', 'info');
+      return { success: true };
+    } catch (err) {
+      console.error('[AI Proposal] Reject error:', err);
+    }
+  }, [addToast]);
+
   // ── Drag & Resize Handlers ────────────────────────────────────────────────
   const onSidebarResizeStart = useCallback(e => {
     e.preventDefault();
@@ -1464,6 +1628,8 @@ export default function EditorPage() {
               errorMessage={aiErrorMessage}
               setErrorMessage={setAiErrorMessage}
               isVisible={workspaceMode === 'ai'}
+              onApproveProposal={handleApproveProposal}
+              onRejectProposal={handleRejectProposal}
             />
           </div>
         </section>
