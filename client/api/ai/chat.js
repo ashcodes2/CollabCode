@@ -2,35 +2,83 @@
  * Vercel Serverless Function: /api/ai/chat
  *
  * AI Agent with tool-calling support via Groq API.
- * On Vercel, this runs without access to the Express server's in-memory fileTrees,
- * so tool calling is only available when a fileTree snapshot is sent from the frontend.
+ * Runs in isolated serverless execution environment.
+ * Tools operate strictly within the user's active clientFileTree.
  */
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const MAX_TOOL_ITERATIONS = 5;
 
-// ─── Inline tool definitions and executor for serverless ───────────────────
+// ─── Security Rules ────────────────────────────────────────────────────────
 
 const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.vercel', '.next',
-  '.cache', 'coverage', '.nyc_output', '__pycache__',
+  '.cache', 'coverage', '.nyc_output', '__pycache__', '.svn',
+  '.github', '.vscode', '.idea',
 ]);
+
+const SENSITIVE_PATTERNS = [
+  /^\.env(\..+)?$/i,
+  /\.(pem|key|crt|pfx|p12|keystore)$/i,
+  /^(id_rsa|id_ed25519|id_dsa|id_ecdsa)(\.pub)?$/i,
+  /^credentials(\.json|\.ini|\.yaml|\.yml)?$/i,
+  /^secrets?(\.json|\.ini|\.yaml|\.yml)?$/i,
+];
+
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg',
   '.woff', '.woff2', '.ttf', '.eot', '.otf',
   '.mp3', '.mp4', '.avi', '.mov', '.webm', '.ogg',
   '.zip', '.tar', '.gz', '.rar', '.7z',
-  '.pdf', '.exe', '.dll', '.wasm',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+  '.exe', '.dll', '.so', '.dylib', '.wasm',
 ]);
 
-function isExcluded(p) {
-  return p.replace(/\\/g, '/').split('/').some(s => EXCLUDED_DIRS.has(s));
+function sanitizePath(raw) {
+  if (typeof raw !== 'string') return { valid: false, error: 'Path must be a string.' };
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+    if (decoded.includes('%')) decoded = decodeURIComponent(decoded);
+  } catch {
+    return { valid: false, error: 'Access denied: Malformed path encoding.' };
+  }
+  const norm = decoded.replace(/\\/g, '/').trim();
+  if (
+    norm.includes('..') ||
+    norm.startsWith('/') ||
+    /^[a-zA-Z]:/.test(norm) ||
+    norm.includes('\0') ||
+    norm.includes('://')
+  ) {
+    return { valid: false, error: 'Access denied: Path traversal outside project boundary is strictly prohibited.' };
+  }
+  const clean = norm.replace(/^\/+/, '');
+  if (!clean || clean.length > 255) return { valid: false, error: 'Invalid path length.' };
+  return { valid: true, path: clean };
 }
+
+function isSensitive(filePath) {
+  if (!filePath) return true;
+  const parts = filePath.replace(/\\/g, '/').split('/');
+  const fn = parts[parts.length - 1];
+  for (const part of parts) {
+    if (EXCLUDED_DIRS.has(part.toLowerCase())) return true;
+    if (part.startsWith('.') && (part === '.git' || part.startsWith('.env') || EXCLUDED_DIRS.has(part.toLowerCase()))) return true;
+  }
+  for (const pat of SENSITIVE_PATTERNS) {
+    if (pat.test(fn)) return true;
+  }
+  return false;
+}
+
 function isBinary(p) {
   const ext = (p.match(/\.[^.]+$/) || [''])[0].toLowerCase();
   return BINARY_EXTENSIONS.has(ext);
 }
+
+// ─── Tool Definitions & Execution ──────────────────────────────────────────
 
 const TOOL_DEFINITIONS = [
   {
@@ -84,10 +132,15 @@ function executeTool(name, args, fileTree) {
   }
 
   if (name === 'list_files') {
-    const dir = (args.directory || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    let dir = '';
+    if (args.directory) {
+      const s = sanitizePath(args.directory);
+      if (!s.valid) return { success: false, error: s.error };
+      dir = s.path.replace(/^\/+|\/+$/g, '');
+    }
     const entries = [];
     for (const [fp, node] of Object.entries(fileTree)) {
-      if (isExcluded(fp)) continue;
+      if (isSensitive(fp)) continue;
       if (dir && !fp.startsWith(dir + '/') && fp !== dir) continue;
       entries.push({ path: fp, type: node.type || 'file', name: node.name || fp.split('/').pop(), language: node.language || 'plaintext' });
     }
@@ -100,19 +153,23 @@ function executeTool(name, args, fileTree) {
   }
 
   if (name === 'read_file') {
-    const fp = (args.path || '').replace(/\\/g, '/').replace(/^\/+/, '');
-    if (!fp) return { success: false, error: 'No file path provided.' };
+    const raw = args.path;
+    if (!raw || typeof raw !== 'string') return { success: false, error: 'No file path provided.' };
+    const s = sanitizePath(raw);
+    if (!s.valid) return { success: false, error: s.error };
+    const fp = s.path;
+    if (isSensitive(fp)) return { success: false, error: `Access denied: "${fp}" is a protected file.` };
     if (isBinary(fp)) return { success: false, error: `Cannot read "${fp}": binary file.` };
     let node = fileTree[fp];
     if (!node) {
       const lower = fp.toLowerCase();
       for (const [k, v] of Object.entries(fileTree)) {
-        if (k.toLowerCase() === lower) { node = v; break; }
+        if (k.toLowerCase() === lower && !isSensitive(k)) { node = v; break; }
       }
     }
     if (!node) return { success: false, error: `File "${fp}" not found in the project.` };
     if (node.type === 'folder') return { success: false, error: `"${fp}" is a folder.` };
-    const content = node.value || '';
+    const content = (node.value || '').slice(0, 100 * 1024);
     return { success: true, path: fp, language: node.language || 'plaintext', content, lines: content.split('\n').length };
   }
 
@@ -120,10 +177,13 @@ function executeTool(name, args, fileTree) {
     const query = (args.query || '').trim();
     if (!query) return { success: false, error: 'No search query provided.' };
     const pattern = (args.file_pattern || '').trim().toLowerCase();
+    if (pattern && (pattern.includes('..') || pattern.includes('/') || pattern.includes('\\'))) {
+      return { success: false, error: 'Access denied: Invalid file pattern.' };
+    }
     const results = [];
     let searched = 0;
     for (const [fp, node] of Object.entries(fileTree)) {
-      if (isExcluded(fp) || node.type === 'folder' || isBinary(fp)) continue;
+      if (isSensitive(fp) || node.type === 'folder' || isBinary(fp)) continue;
       if (pattern) {
         const ext = (fp.match(/\.[^.]+$/) || [''])[0].toLowerCase();
         if (ext !== pattern && !fp.toLowerCase().endsWith(pattern)) continue;
@@ -151,7 +211,7 @@ function executeTool(name, args, fileTree) {
   return { success: false, error: `Unknown tool: "${name}"` };
 }
 
-// ─── System prompt ─────────────────────────────────────────────────────────
+// ─── System Prompt ─────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are CollabCode AI, an intelligent coding agent integrated into a collaborative web development IDE.
 
@@ -175,7 +235,7 @@ When providing code, use properly formatted Markdown code blocks with language t
 
 If the user asks a question unrelated to programming, politely guide them back to software engineering and coding topics.`;
 
-// ─── Groq API caller ──────────────────────────────────────────────────────
+// ─── Groq API Caller ──────────────────────────────────────────────────────
 
 async function callGroq(apiKey, model, messages, includeTools) {
   const payload = { model, messages, temperature: 0.6, max_tokens: 4096 };

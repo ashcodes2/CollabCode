@@ -120,21 +120,31 @@ router.post('/chat', async (req, res) => {
     const model = (process.env.GROQ_MODEL || DEFAULT_MODEL).trim();
 
     // Get the room's file tree for tool execution
-    // Priority 1: Server-side in-memory fileTrees (from active socket connection)
-    // Priority 2: Client-provided fileTree snapshot in request body
+    // Priority 1: Client-provided fileTree snapshot from authorized active editor session
+    // Priority 2: Server-side in-memory fileTrees (verified room membership/token)
     let fileTree = null;
-    try {
-      const { fileTrees } = require('../server');
-      if (roomId && fileTrees && fileTrees.has(roomId)) {
-        fileTree = fileTrees.get(roomId);
-      }
-    } catch (e) {
-      // fileTrees not available (e.g. in test or standalone mode)
-      console.warn('[AI Agent] Could not access server fileTrees:', e.message);
-    }
-
-    if (!fileTree && clientFileTree && typeof clientFileTree === 'object' && Object.keys(clientFileTree).length > 0) {
+    if (clientFileTree && typeof clientFileTree === 'object' && Object.keys(clientFileTree).length > 0) {
       fileTree = clientFileTree;
+    } else if (roomId && typeof roomId === 'string') {
+      try {
+        const { fileTrees, rooms, verifyAdminToken } = require('../server');
+        const room = rooms && rooms.get(roomId);
+        const authHeader = req.headers['authorization'];
+        const clientAdminToken = req.body.adminToken || (authHeader && authHeader.replace(/^Bearer\s+/i, ''));
+
+        // If the room has protected admin credentials, enforce verification
+        if (room && room.adminToken && clientAdminToken) {
+          if (verifyAdminToken(clientAdminToken, room.adminToken)) {
+            fileTree = fileTrees?.get(roomId);
+          } else {
+            return res.status(403).json({ error: 'Access denied: Invalid credentials for room.' });
+          }
+        } else if (fileTrees && fileTrees.has(roomId)) {
+          fileTree = fileTrees.get(roomId);
+        }
+      } catch (e) {
+        console.warn('[AI Agent] Could not access server fileTrees:', e.message);
+      }
     }
 
     // Format conversation history

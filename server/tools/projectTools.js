@@ -2,18 +2,33 @@
  * server/tools/projectTools.js
  *
  * Backend tool implementations for the CollabCode AI Agent.
- * These tools operate on the in-memory fileTrees (Yjs-synced project state)
- * to give the LLM actual project context.
+ * These tools operate strictly on the in-memory fileTrees (the authorized active project)
+ * to give the LLM actual project context while preventing unauthorized access,
+ * path traversal, and sensitive file leakage.
  */
 
 const path = require('path');
 
-// Directories and files to exclude from listing and searching
+// Excluded directories from project listing and searching
 const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.vercel', '.next',
   '.cache', 'coverage', '.nyc_output', '__pycache__', '.svn',
+  '.github', '.vscode', '.idea',
 ]);
 
+// Sensitive file patterns that must never be read, listed, or searched
+const SENSITIVE_FILE_PATTERNS = [
+  /^\.env(\..+)?$/i,                     // .env, .env.local, .env.production, etc.
+  /\.env(\..+)?$/i,
+  /\.(pem|key|crt|pfx|p12|keystore)$/i,  // Certificates and private keys
+  /^(id_rsa|id_ed25519|id_dsa|id_ecdsa)(\.pub)?$/i, // SSH keys
+  /^credentials(\.json|\.ini|\.yaml|\.yml)?$/i,     // Credentials files
+  /^secrets?(\.json|\.ini|\.yaml|\.yml)?$/i,        // Secret storage
+  /^\.?htpasswd$/i,
+  /^\.?netrc$/i,
+];
+
+// Binary file extensions that cannot be meaningfully processed as text
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg',
   '.woff', '.woff2', '.ttf', '.eot', '.otf',
@@ -28,15 +43,89 @@ const MAX_SEARCH_RESULTS = 30;
 const MAX_CONTEXT_LINES = 3; // Lines of context around search matches
 
 /**
- * Check if a file path should be excluded
+ * Validate and sanitize a file or directory path.
+ * Enforces strict boundaries: no traversal (../), no encoded traversal,
+ * no absolute paths, no drive letters, no null bytes.
+ *
+ * @param {string} rawPath
+ * @returns {{ valid: boolean, path?: string, error?: string }}
  */
-function isExcludedPath(filePath) {
-  const parts = filePath.replace(/\\/g, '/').split('/');
-  return parts.some(part => EXCLUDED_DIRS.has(part));
+function sanitizeProjectPath(rawPath) {
+  if (typeof rawPath !== 'string') {
+    return { valid: false, error: 'Invalid path: path parameter must be a string.' };
+  }
+
+  // Handle URL encoding (single and double encoding e.g. %2e%2e or %252e%252e)
+  let decoded = rawPath;
+  try {
+    decoded = decodeURIComponent(rawPath);
+    // Double-decode to catch double-encoded traversal
+    if (decoded.includes('%')) {
+      decoded = decodeURIComponent(decoded);
+    }
+  } catch {
+    return { valid: false, error: 'Access denied: Malformed or malicious path encoding detected.' };
+  }
+
+  // Normalize slashes
+  const normalized = decoded.replace(/\\/g, '/').trim();
+
+  // Check for path traversal indicators and absolute path indicators
+  if (
+    normalized.includes('..') ||
+    normalized.startsWith('/') ||
+    /^[a-zA-Z]:/.test(normalized) || // Windows drive letters (C:, D:, etc.)
+    normalized.includes('\0') ||      // Null byte injection
+    normalized.includes('://')        // Protocol injection (file://, http://)
+  ) {
+    return { valid: false, error: 'Access denied: Path traversal outside project boundary is strictly prohibited.' };
+  }
+
+  // Strip leading slashes if any remain
+  const clean = normalized.replace(/^\/+/, '');
+  if (!clean || clean.length > 255) {
+    return { valid: false, error: 'Invalid path: Path is empty or exceeds maximum length of 255 characters.' };
+  }
+
+  return { valid: true, path: clean };
 }
 
 /**
- * Check if a file is binary based on extension
+ * Check if a file or directory path is sensitive or excluded.
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isExcludedOrSensitive(filePath) {
+  if (!filePath) return true;
+  const normalized = filePath.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  const fileName = parts[parts.length - 1];
+
+  // Check directory components against excluded directories
+  for (const part of parts) {
+    if (EXCLUDED_DIRS.has(part.toLowerCase())) {
+      return true;
+    }
+    // Block hidden root directories like .git, .env directories
+    if (part.startsWith('.') && (part === '.git' || part.startsWith('.env') || EXCLUDED_DIRS.has(part.toLowerCase()))) {
+      return true;
+    }
+  }
+
+  // Check file name against sensitive file patterns
+  for (const pattern of SENSITIVE_FILE_PATTERNS) {
+    if (pattern.test(fileName)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if a file is binary based on extension.
+ * @param {string} filePath
+ * @returns {boolean}
  */
 function isBinaryFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -126,18 +215,27 @@ const TOOL_DEFINITIONS = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * list_files: List project files and folders
+ * list_files: List project files and folders inside the active project
  */
 function executeListFiles(fileTree, args) {
   if (!fileTree || typeof fileTree !== 'object') {
     return { success: false, error: 'No project files found. The project may be empty or not yet synced.' };
   }
 
-  const directory = (args.directory || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  let directory = '';
+  if (args.directory) {
+    const sanitization = sanitizeProjectPath(args.directory);
+    if (!sanitization.valid) {
+      return { success: false, error: sanitization.error };
+    }
+    directory = sanitization.path.replace(/^\/+|\/+$/g, '');
+  }
+
   const entries = [];
 
   for (const [filePath, node] of Object.entries(fileTree)) {
-    if (isExcludedPath(filePath)) continue;
+    // Security: exclude sensitive files and directories
+    if (isExcludedOrSensitive(filePath)) continue;
 
     // Filter by directory prefix if specified
     if (directory && !filePath.startsWith(directory + '/') && filePath !== directory) {
@@ -174,31 +272,44 @@ function executeListFiles(fileTree, args) {
 }
 
 /**
- * read_file: Read a specific file's content
+ * read_file: Read a specific file's content strictly from the active project
  */
 function executeReadFile(fileTree, args) {
   if (!fileTree || typeof fileTree !== 'object') {
     return { success: false, error: 'No project files available.' };
   }
 
-  const filePath = (args.path || '').replace(/\\/g, '/').replace(/^\/+/, '');
-
-  if (!filePath) {
+  const rawPath = args.path;
+  if (!rawPath || typeof rawPath !== 'string') {
     return { success: false, error: 'No file path provided. Please specify which file to read.' };
   }
 
+  // 1. Sanitize against path traversal and malformed paths
+  const sanitization = sanitizeProjectPath(rawPath);
+  if (!sanitization.valid) {
+    return { success: false, error: sanitization.error };
+  }
+
+  const filePath = sanitization.path;
+
+  // 2. Reject sensitive/credential files (.env, keys, etc.)
+  if (isExcludedOrSensitive(filePath)) {
+    return { success: false, error: `Access denied: "${filePath}" is a protected or sensitive file and cannot be read.` };
+  }
+
+  // 3. Reject binary files
   if (isBinaryFile(filePath)) {
     return { success: false, error: `Cannot read "${filePath}": binary file type is not supported.` };
   }
 
-  // Try exact match first, then case-insensitive
+  // 4. Try exact match first, then case-insensitive match within the active fileTree
   let node = fileTree[filePath];
   let resolvedPath = filePath;
 
   if (!node) {
     const lowerPath = filePath.toLowerCase();
     for (const [key, val] of Object.entries(fileTree)) {
-      if (key.toLowerCase() === lowerPath) {
+      if (key.toLowerCase() === lowerPath && !isExcludedOrSensitive(key)) {
         node = val;
         resolvedPath = key;
         break;
@@ -209,7 +320,7 @@ function executeReadFile(fileTree, args) {
   if (!node) {
     // Provide helpful suggestions based on file basename
     const targetBase = path.basename(filePath, path.extname(filePath)).toLowerCase();
-    const allPaths = Object.keys(fileTree).filter(p => !isExcludedPath(p));
+    const allPaths = Object.keys(fileTree).filter(p => !isExcludedOrSensitive(p));
     const suggestions = allPaths
       .filter(p => {
         const base = path.basename(p, path.extname(p)).toLowerCase();
@@ -252,7 +363,7 @@ function executeReadFile(fileTree, args) {
 }
 
 /**
- * search_code: Search for a pattern across project files
+ * search_code: Search for a pattern across files in the active project
  */
 function executeSearchCode(fileTree, args) {
   if (!fileTree || typeof fileTree !== 'object') {
@@ -264,12 +375,21 @@ function executeSearchCode(fileTree, args) {
     return { success: false, error: 'No search query provided.' };
   }
 
-  const filePattern = (args.file_pattern || '').trim().toLowerCase();
+  // Sanitize file pattern filter if provided
+  let filePattern = (args.file_pattern || '').trim().toLowerCase();
+  if (filePattern) {
+    // Prevent traversal via file pattern (e.g. "../")
+    if (filePattern.includes('..') || filePattern.includes('/') || filePattern.includes('\\')) {
+      return { success: false, error: 'Access denied: Invalid file pattern.' };
+    }
+  }
+
   const results = [];
   let filesSearched = 0;
 
   for (const [filePath, node] of Object.entries(fileTree)) {
-    if (isExcludedPath(filePath)) continue;
+    // Security: skip sensitive files, excluded directories, and binary files
+    if (isExcludedOrSensitive(filePath)) continue;
     if (node.type === 'folder') continue;
     if (isBinaryFile(filePath)) continue;
 
@@ -339,7 +459,7 @@ function executeSearchCode(fileTree, args) {
  * Execute a tool call by name with the provided arguments
  * @param {string} toolName - The function name to execute
  * @param {object} args - Parsed arguments from the LLM
- * @param {object} fileTree - The room's file tree from fileTrees Map
+ * @param {object} fileTree - The active project's file tree
  * @returns {object} Tool execution result
  */
 function executeTool(toolName, args, fileTree) {
@@ -358,4 +478,6 @@ function executeTool(toolName, args, fileTree) {
 module.exports = {
   TOOL_DEFINITIONS,
   executeTool,
+  sanitizeProjectPath,
+  isExcludedOrSensitive,
 };
