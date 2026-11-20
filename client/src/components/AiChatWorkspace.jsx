@@ -1418,7 +1418,7 @@ export default function AiChatWorkspace({
 
       for (const endpoint of candidates) {
         const controller = new AbortController();
-        const timeoutTimer = setTimeout(() => controller.abort(), 45000);
+        const timeoutTimer = setTimeout(() => controller.abort(), 65000);
 
         try {
           const attemptRes = await fetch(endpoint, {
