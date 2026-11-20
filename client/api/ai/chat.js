@@ -567,7 +567,7 @@ If the user asks a question unrelated to programming, politely guide them back t
 
 // ─── Groq API Caller ──────────────────────────────────────────────────────
 
-async function callGroq(apiKey, model, messages, includeTools, retries = 2) {
+async function callGroq(apiKey, model, messages, includeTools, retries = 3) {
   const payload = { model, messages, temperature: 0.6, max_tokens: 4096 };
   if (includeTools) {
     payload.tools = TOOL_DEFINITIONS;
@@ -590,8 +590,25 @@ async function callGroq(apiKey, model, messages, includeTools, retries = 2) {
     }
 
     if (resp.status === 429 && attempt < retries) {
-      console.warn(`[AI Chat Vercel] Rate limit 429 received, backing off 3.5s before retry (attempt ${attempt + 1}/${retries})...`);
-      await new Promise(r => setTimeout(r, 3500));
+      let waitMs = 4000 * (attempt + 1);
+      const retryAfter = resp.headers.get('retry-after');
+      const resetTokens = resp.headers.get('x-ratelimit-reset-tokens');
+
+      if (retryAfter) {
+        const sec = parseFloat(retryAfter);
+        if (!isNaN(sec) && sec > 0) waitMs = Math.ceil(sec * 1000) + 600;
+      } else if (resetTokens) {
+        if (resetTokens.endsWith('ms')) {
+          const ms = parseFloat(resetTokens);
+          if (!isNaN(ms)) waitMs = Math.max(1200, ms + 500);
+        } else if (resetTokens.endsWith('s')) {
+          const s = parseFloat(resetTokens);
+          if (!isNaN(s)) waitMs = Math.ceil(s * 1000) + 700;
+        }
+      }
+
+      console.warn(`[AI Chat Vercel] Rate limit 429 received, waiting ${waitMs}ms before retry (attempt ${attempt + 1}/${retries})...`);
+      await new Promise(r => setTimeout(r, waitMs));
       continue;
     }
 
@@ -655,6 +672,10 @@ export default async function handler(req, res) {
     let lastData = null;
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      if (i > 0) {
+        // Pacing delay between multi-turn tool calls to allow Groq TPM bucket to replenish
+        await new Promise(r => setTimeout(r, 600));
+      }
       const data = await callGroq(apiKey, model, conversationMessages, true);
       lastData = data;
       const choice = data.choices?.[0];

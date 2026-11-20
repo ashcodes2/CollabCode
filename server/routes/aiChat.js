@@ -133,7 +133,7 @@ router.get('/status', (req, res) => {
 /**
  * Call Groq API with messages and optional tools, with automatic retry on 429 rate limits
  */
-async function callGroq(apiKey, model, messages, includeTools = false, retries = 2) {
+async function callGroq(apiKey, model, messages, includeTools = false, retries = 3) {
   const payload = {
     model,
     messages,
@@ -166,8 +166,25 @@ async function callGroq(apiKey, model, messages, includeTools = false, retries =
     }
 
     if (response.status === 429 && attempt < retries) {
-      console.warn(`[AI Agent] Rate limit 429 received, backing off 3.5s before retry (attempt ${attempt + 1}/${retries})...`);
-      await new Promise(r => setTimeout(r, 3500));
+      let waitMs = 4000 * (attempt + 1);
+      const retryAfter = response.headers.get('retry-after');
+      const resetTokens = response.headers.get('x-ratelimit-reset-tokens');
+
+      if (retryAfter) {
+        const sec = parseFloat(retryAfter);
+        if (!isNaN(sec) && sec > 0) waitMs = Math.ceil(sec * 1000) + 600;
+      } else if (resetTokens) {
+        if (resetTokens.endsWith('ms')) {
+          const ms = parseFloat(resetTokens);
+          if (!isNaN(ms)) waitMs = Math.max(1200, ms + 500);
+        } else if (resetTokens.endsWith('s')) {
+          const s = parseFloat(resetTokens);
+          if (!isNaN(s)) waitMs = Math.ceil(s * 1000) + 700;
+        }
+      }
+
+      console.warn(`[AI Agent] Rate limit 429 received, backing off ${waitMs}ms before retry (attempt ${attempt + 1}/${retries})...`);
+      await new Promise(r => setTimeout(r, waitMs));
       continue;
     }
 
@@ -266,6 +283,10 @@ router.post('/chat', async (req, res) => {
     let lastData = null;
 
     while (iteration < MAX_TOOL_ITERATIONS) {
+      if (iteration > 0) {
+        // Pacing delay between multi-turn tool calls to allow Groq TPM bucket to replenish
+        await new Promise(r => setTimeout(r, 600));
+      }
       iteration++;
 
       const data = await callGroq(apiKey, model, conversationMessages, true);
