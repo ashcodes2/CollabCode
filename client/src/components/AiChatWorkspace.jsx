@@ -199,6 +199,8 @@ export const DEFAULT_AI_MESSAGES = [
 export default function AiChatWorkspace({
   onSwitchToCode,
   activeFileName,
+  roomId,
+  fileTree,
   messages: parentMessages,
   setMessages: parentSetMessages,
   inputPrompt: parentInputPrompt,
@@ -296,6 +298,14 @@ export default function AiChatWorkspace({
           content: m.content,
         }));
 
+      // Build the request payload including roomId and fileTree for agent tools
+      const requestPayload = { messages: payloadMessages };
+      if (roomId) requestPayload.roomId = roomId;
+      // Send a lightweight snapshot of the file tree for Vercel serverless (which has no in-memory fileTrees)
+      if (fileTree && typeof fileTree === 'object' && Object.keys(fileTree).length > 0) {
+        requestPayload.fileTree = fileTree;
+      }
+
       // Candidate endpoints in priority order:
       // 1. Same-origin relative endpoint '/api/ai/chat' (Vercel Serverless Function in production, Vite dev proxy in dev)
       // 2. Configured external backend (e.g. Render server) if provided
@@ -319,7 +329,7 @@ export default function AiChatWorkspace({
           const attemptRes = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: payloadMessages }),
+            body: JSON.stringify(requestPayload),
             signal: controller.signal,
           });
 

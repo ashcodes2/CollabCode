@@ -1453,6 +1453,8 @@ export default function EditorPage() {
             <AiChatWorkspace
               onSwitchToCode={() => setWorkspaceMode('code')}
               activeFileName={activeFilePath}
+              roomId={roomId}
+              fileTree={fileTree}
               messages={aiMessages}
               setMessages={setAiMessages}
               inputPrompt={aiInputPrompt}

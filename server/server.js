@@ -483,4 +483,4 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-module.exports = { app, server, io, rooms, sanitizePath, verifyAdminToken };
+module.exports = { app, server, io, rooms, fileTrees, sanitizePath, verifyAdminToken };
