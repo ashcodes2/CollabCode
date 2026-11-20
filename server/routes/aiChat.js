@@ -48,7 +48,7 @@ async function callGroq(apiKey, model, messages, includeTools = false, retries =
     model,
     messages,
     temperature: 0.6,
-    max_tokens: 1200,
+    max_tokens: 900,
   };
 
   if (includeTools) {
@@ -336,7 +336,7 @@ router.post('/chat', async (req, res) => {
       return res.status(404).json({ error: `Model error: Groq model was not found or is unavailable.` });
     }
     if (error.status === 429) {
-      return res.status(429).json({ error: 'Rate limit exceeded: Groq API rate limit reached. Please wait a moment before sending another message.' });
+      return res.status(429).json({ error: error.message || 'Rate limit exceeded: Groq API rate limit reached. Please wait a moment before sending another message.' });
     }
     if (error.status === 400) {
       return res.status(400).json({ error: `Bad request to Groq API: ${error.message}` });

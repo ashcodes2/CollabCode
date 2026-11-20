@@ -481,7 +481,7 @@ CORE WORKFLOW & TOOLS:
 // ─── Groq API Caller ──────────────────────────────────────────────────────
 
 async function callGroq(apiKey, model, messages, includeTools, retries = 1) {
-  const payload = { model, messages, temperature: 0.6, max_tokens: 1200 };
+  const payload = { model, messages, temperature: 0.6, max_tokens: 900 };
   if (includeTools) {
     payload.tools = TOOL_DEFINITIONS;
     payload.tool_choice = 'auto';
@@ -660,8 +660,8 @@ export default async function handler(req, res) {
 
     if (error.status === 401) return res.status(401).json({ error: 'Invalid Groq API key.' });
     if (error.status === 404) return res.status(404).json({ error: 'Groq model not found.' });
-    if (error.status === 429) return res.status(429).json({ error: 'Rate limit exceeded. Please wait.' });
-    if (error.status >= 500) return res.status(502).json({ error: 'Groq service error. Try again.' });
+    if (error.status === 429) return res.status(429).json({ error: error.message || 'Rate limit exceeded. Please wait.' });
+    if (error.status >= 500) return res.status(502).json({ error: error.message || 'Groq service error. Try again.' });
 
     return res.status(500).json({ error: error.message || 'Internal error.' });
   }
