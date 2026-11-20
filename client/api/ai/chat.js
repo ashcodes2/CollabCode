@@ -7,6 +7,7 @@
  */
 
 import crypto from 'crypto';
+import { diagnoseProject } from './diagnostic.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
@@ -267,6 +268,32 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'diagnose_code',
+      description:
+        'Run deep static diagnostics across HTML, CSS, and JavaScript project files. ' +
+        'Detects syntax errors, missing DOM IDs/selectors across files, script execution timing issues (e.g. head scripts without defer), ' +
+        'broken <script src> or <link rel="stylesheet"> references, incorrect event names (e.g. onclick in addEventListener), ' +
+        'and common logical bugs like string concatenation counters. ' +
+        'Can also diagnose specific browser console error messages provided by the user.',
+      parameters: {
+        type: 'object',
+        properties: {
+          error_message: {
+            type: 'string',
+            description: 'Optional browser console error message (e.g. "Cannot read properties of null (reading \'addEventListener\')") to analyze.',
+          },
+          target_file: {
+            type: 'string',
+            description: 'Optional specific file to focus analysis on (e.g. "script.js").',
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 function buildProposal(items, fileTree) {
@@ -411,6 +438,18 @@ function executeTool(name, args, fileTree) {
     return { success: true, message: `Found ${results.length} match(es) across ${searched} file(s).`, results };
   }
 
+  if (name === 'diagnose_code') {
+    const report = diagnoseProject(fileTree, {
+      errorMessage: args.error_message || '',
+      targetFile: args.target_file || '',
+    });
+    return {
+      success: true,
+      message: `Project diagnostics complete: Found ${report.summary.confirmedErrorCount} confirmed error(s) and ${report.summary.potentialIssueCount} potential issue(s).`,
+      diagnostics: report,
+    };
+  }
+
   if (name === 'propose_file_edit') {
     if (!args.path || typeof args.content !== 'string') {
       return { success: false, error: 'Both "path" and "content" are required to propose a file edit.' };
@@ -449,6 +488,7 @@ You have access to the user's current project files through these tools:
 - **list_files**: See all files and folders in the project
 - **read_file**: Read the content of any project file
 - **search_code**: Search for keywords, functions, variables, or patterns across all project files
+- **diagnose_code**: Run static diagnostics across HTML, CSS, and JS files to detect syntax errors, missing DOM IDs, broken script/style tags, head-script timing bugs, event listener typos, and counter logic issues
 - **propose_file_edit**: Propose creating a new file or modifying an existing file (HTML, CSS, JS)
 - **propose_file_changes**: Propose changes across multiple files at once
 
@@ -457,7 +497,15 @@ IMPORTANT RULES:
 2. Use list_files to understand the project structure before reading specific files.
 3. Use read_file to get actual file content before explaining, reviewing, or suggesting changes to code.
 4. Use search_code to find where functions, variables, classes, or CSS rules are defined or used.
-5. CODE GENERATION & FILE EDITING RULES:
+5. DEBUGGING & ERROR ANALYSIS RULES (Phase 3):
+   - When the user reports an error, asks to find bugs, or asks why something is not working (e.g. button click not working, CSS styles not applying, counter not updating, or a browser console error):
+     a. First, call diagnose_code (passing error_message if provided) and read relevant project files (e.g. index.html, style.css, script.js) with read_file.
+     b. Clearly identify the ROOT CAUSE of the bug. Distinguish confirmed errors from potential warnings.
+     c. Explain WHY the error happens with exact file paths and line numbers.
+     d. ALWAYS propose the practical fix using propose_file_edit (or propose_file_changes for multi-file issues).
+     e. The proposed fix will display in the Diff Preview for the user to Approve or Reject before any file is touched.
+     f. Do NOT pretend to access the browser console automatically; analyze the user's report and project files.
+6. CODE GENERATION & FILE EDITING RULES:
    - When the user asks to modify, create, update, or add code to their project:
      a. FIRST inspect relevant existing files with read_file or list_files to understand existing structure, styling, and coding conventions.
      b. Then ALWAYS invoke propose_file_edit (or propose_file_changes) providing the COMPLETE, usable, updated or new file content.
@@ -465,12 +513,16 @@ IMPORTANT RULES:
      d. The backend will compute a line-by-line diff preview requiring the user to explicitly click Approve before any changes are written.
      e. Only HTML, CSS, and JavaScript files are supported for editing. Never attempt to edit sensitive files like .env or configuration files.
      f. Never modify unrelated files.
-6. When reviewing code, read the actual file first, then provide specific feedback with line references.
-7. For general programming questions NOT about the user's project, answer directly without tools.
+7. When reviewing code, read the actual file first, then provide specific feedback with line references.
+8. For general programming questions NOT about the user's project, answer directly without tools.
 
 You are especially knowledgeable about HTML, CSS, JavaScript, React, Node.js, programming fundamentals, data structures and algorithms, debugging, and web development best practices.
 
-When providing code, use properly formatted Markdown code blocks with language tags. Reference actual file paths and line numbers from the project when applicable.
+When providing code:
+- Use properly formatted Markdown code blocks with language tags.
+- Explain important parts clearly.
+- Reference actual file paths and line numbers from the project when applicable.
+- Follow good coding practices.
 
 If the user asks a question unrelated to programming, politely guide them back to software engineering and coding topics.`;
 

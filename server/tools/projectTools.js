@@ -265,6 +265,32 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'diagnose_code',
+      description:
+        'Run deep static diagnostics across HTML, CSS, and JavaScript project files. ' +
+        'Detects syntax errors, missing DOM IDs/selectors across files, script execution timing issues (e.g. head scripts without defer), ' +
+        'broken <script src> or <link rel="stylesheet"> references, incorrect event names (e.g. onclick in addEventListener), ' +
+        'and common logical bugs like string concatenation counters. ' +
+        'Can also diagnose specific browser console error messages provided by the user.',
+      parameters: {
+        type: 'object',
+        properties: {
+          error_message: {
+            type: 'string',
+            description: 'Optional browser console error message (e.g. "Cannot read properties of null (reading \'addEventListener\')") to analyze.',
+          },
+          target_file: {
+            type: 'string',
+            description: 'Optional specific file to focus analysis on (e.g. "script.js").',
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -567,6 +593,27 @@ function executeProposeFileChanges(fileTree, args, roomId = null) {
   };
 }
 
+/**
+ * diagnose_code: Run static diagnostics and cross-file bug detection
+ */
+function executeDiagnoseCode(fileTree, args) {
+  if (!fileTree || typeof fileTree !== 'object') {
+    return { success: false, error: 'No project files available for diagnosis.' };
+  }
+
+  const { diagnoseProject } = require('./diagnosticEngine');
+  const report = diagnoseProject(fileTree, {
+    errorMessage: args.error_message || '',
+    targetFile: args.target_file || '',
+  });
+
+  return {
+    success: true,
+    message: `Project diagnostics complete: Found ${report.summary.confirmedErrorCount} confirmed error(s) and ${report.summary.potentialIssueCount} potential issue(s).`,
+    diagnostics: report,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main tool executor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -587,6 +634,8 @@ function executeTool(toolName, args, fileTree, roomId = null) {
       return executeReadFile(fileTree, args || {});
     case 'search_code':
       return executeSearchCode(fileTree, args || {});
+    case 'diagnose_code':
+      return executeDiagnoseCode(fileTree, args || {});
     case 'propose_file_edit':
       return executeProposeFileEdit(fileTree, args || {}, roomId);
     case 'propose_file_changes':
@@ -601,6 +650,7 @@ module.exports = {
   executeTool,
   executeProposeFileEdit,
   executeProposeFileChanges,
+  executeDiagnoseCode,
   sanitizeProjectPath,
   isExcludedOrSensitive,
 };
