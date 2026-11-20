@@ -19,9 +19,33 @@ import {
   ExternalLink, Lightbulb, FileCode, CheckCircle2,
   XCircle, Layers, FilePlus, FileEdit, Eye, AlertTriangle,
   ShieldCheck, HelpCircle, Play, Pause, Square, ListTodo,
-  ChevronDown, ChevronUp, Clock
+  ChevronDown, ChevronUp, Clock, Sliders
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// ── Error Boundary to prevent any card from blanking the screen ───────────────
+class ChatCardErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('[ChatCardErrorBoundary] Caught error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 10, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', borderRadius: 6, color: '#f87171', fontSize: 11, margin: '8px 0' }}>
+          Unable to display component: {this.state.error?.message || 'Rendering error'}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ── Syntax Highlighted Code Block with Copy Action ────────────────────────────
 function CodeBlock({ language, code }) {
@@ -665,13 +689,14 @@ function TaskPlanCard({
     userApproval,
   } = taskPlan;
 
-  const isAwaitingApproval = status === 'awaiting_user_approval';
-  const isInProgress = status === 'in_progress';
-  const isPaused = status === 'paused';
-  const isCompleted = status === 'completed' || (stats && stats.completedSteps === stats.totalSteps && stats.totalSteps > 0);
-  const isBlocked = status === 'blocked';
-  const isCancelled = status === 'cancelled';
-  const isRejected = status === 'rejected';
+  const safeStatus = typeof status === 'string' ? status : 'in_progress';
+  const isAwaitingApproval = safeStatus === 'awaiting_user_approval';
+  const isInProgress = safeStatus === 'in_progress';
+  const isPaused = safeStatus === 'paused';
+  const isCompleted = safeStatus === 'completed' || (stats && stats.completedSteps === stats.totalSteps && stats.totalSteps > 0);
+  const isBlocked = safeStatus === 'blocked';
+  const isCancelled = safeStatus === 'cancelled';
+  const isRejected = safeStatus === 'rejected';
 
   const statusColors = {
     awaiting_user_approval: { bg: 'rgba(245, 158, 11, 0.15)', text: '#fbbf24', border: '#f59e0b' },
@@ -684,7 +709,7 @@ function TaskPlanCard({
     rejected: { bg: 'rgba(239, 68, 68, 0.15)', text: '#fca5a5', border: '#dc2626' },
   };
 
-  const currentTheme = statusColors[status] || statusColors.in_progress;
+  const currentTheme = statusColors[safeStatus] || statusColors.in_progress;
   const progressPercent = stats?.progressPercent || 0;
 
   const toggleExpand = (stepId) => {
@@ -721,12 +746,12 @@ function TaskPlanCard({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ListTodo size={16} color="#818cf8" />
             <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>
-              {title}
+              {typeof title === 'string' ? title : 'Task Execution Plan'}
             </h4>
           </div>
           {goal && (
             <p style={{ margin: '4px 0 0 24px', fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>
-              {goal}
+              {typeof goal === 'string' ? goal : JSON.stringify(goal)}
             </p>
           )}
         </div>
@@ -743,7 +768,7 @@ function TaskPlanCard({
             whiteSpace: 'nowrap',
           }}
         >
-          {status.replace(/_/g, ' ')}
+          {safeStatus.replace(/_/g, ' ')}
         </span>
       </div>
 
@@ -1722,34 +1747,42 @@ export default function AiChatWorkspace({
                     <FormattedMessage content={msg.content} />
 
                     {msg.testResults && (
-                      <TestResultsCard
-                        testResults={msg.testResults}
-                        onRunRuntimeTests={onRunRuntimeTests}
-                        onUpdateTestResults={(updatedResults, logs) => handleUpdateTestResults(msg.id, updatedResults, logs)}
-                        onFixTest={(test) => handleSendMessage(`Runtime browser test failed for ${test.id} (${test.name}). Expected: ${test.expected}. Actual in Live Preview DOM: ${test.actual}.${test.errorDetails ? ` Error details: ${test.errorDetails}.` : ''} Please diagnose with analyze_runtime_test_failure and propose the fix.`)}
-                      />
+                      <ChatCardErrorBoundary>
+                        <TestResultsCard
+                          testResults={msg.testResults}
+                          onRunRuntimeTests={onRunRuntimeTests}
+                          onUpdateTestResults={(updatedResults, logs) => handleUpdateTestResults(msg.id, updatedResults, logs)}
+                          onFixTest={(test) => handleSendMessage(`Runtime browser test failed for ${test.id} (${test.name}). Expected: ${test.expected}. Actual in Live Preview DOM: ${test.actual}.${test.errorDetails ? ` Error details: ${test.errorDetails}.` : ''} Please diagnose with analyze_runtime_test_failure and propose the fix.`)}
+                        />
+                      </ChatCardErrorBoundary>
                     )}
 
                     {msg.testPlan && !msg.testResults && (
-                      <TestPlanCard testPlan={msg.testPlan} />
+                      <ChatCardErrorBoundary>
+                        <TestPlanCard testPlan={msg.testPlan} />
+                      </ChatCardErrorBoundary>
                     )}
 
                     {msg.taskPlan && (
-                      <TaskPlanCard
-                        taskPlan={msg.taskPlan}
-                        onPlanDecision={handlePlanDecision}
-                        onPlanControl={handlePlanControl}
-                        onExecuteStep={handleExecuteStep}
-                        onRecoverStep={handleRecoverStep}
-                      />
+                      <ChatCardErrorBoundary>
+                        <TaskPlanCard
+                          taskPlan={msg.taskPlan}
+                          onPlanDecision={handlePlanDecision}
+                          onPlanControl={handlePlanControl}
+                          onExecuteStep={handleExecuteStep}
+                          onRecoverStep={handleRecoverStep}
+                        />
+                      </ChatCardErrorBoundary>
                     )}
 
                     {msg.proposal && (
-                      <DiffPreview
-                        proposal={msg.proposal}
-                        onApprove={handleApproveProposal}
-                        onReject={(prop) => onRejectProposal ? onRejectProposal(prop) : Promise.resolve()}
-                      />
+                      <ChatCardErrorBoundary>
+                        <DiffPreview
+                          proposal={msg.proposal}
+                          onApprove={handleApproveProposal}
+                          onReject={(prop) => onRejectProposal ? onRejectProposal(prop) : Promise.resolve()}
+                        />
+                      </ChatCardErrorBoundary>
                     )}
                   </div>
                 </div>
