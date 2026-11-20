@@ -291,6 +291,51 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_test_plan',
+      description:
+        'Inspect project files to create a structured test plan and test cases for HTML, CSS, and JavaScript. ' +
+        'Generates test cases across normal scenarios, edge cases, and invalid inputs with expected results, ' +
+        'identifies missing test scenarios and missing validation rules (e.g. empty input validation, division by zero, counter concatenation bugs), ' +
+        'and provides step-by-step testing instructions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          feature: {
+            type: 'string',
+            description: 'Optional specific feature or component to test (e.g. "login", "counter", "calculator", "all").',
+          },
+          target_file: {
+            type: 'string',
+            description: 'Optional file path to focus test generation on (e.g. "index.html", "script.js").',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_project_tests',
+      description:
+        'Run safe automated testing and contract validation across project HTML, CSS, and JavaScript without executing untrusted code on the backend. ' +
+        'Returns structured test results with Passed, Failed, and Not Tested statuses, expected vs actual values, and plain-language error explanations. ' +
+        'Never claims a test passed unless verified.',
+      parameters: {
+        type: 'object',
+        properties: {
+          test_suite: {
+            type: 'string',
+            description: 'Optional specific suite to run (e.g. "all", "validation", "counter", "calculator").',
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -614,6 +659,47 @@ function executeDiagnoseCode(fileTree, args) {
   };
 }
 
+/**
+ * generate_test_plan: Generate structured test cases and testing checklist
+ */
+function executeGenerateTestPlan(fileTree, args) {
+  if (!fileTree || typeof fileTree !== 'object') {
+    return { success: false, error: 'No project files available for generating test plan.' };
+  }
+
+  const { generateTestPlan } = require('./testEngine');
+  const plan = generateTestPlan(fileTree, {
+    feature: args.feature || '',
+    targetFile: args.target_file || '',
+  });
+
+  return {
+    success: true,
+    message: `Generated test plan with ${plan.summary.total} test case(s) across detected features: [${plan.featuresDetected.join(', ')}]. Found ${plan.missingScenarios.length} missing test scenario/validation gap(s).`,
+    testPlan: plan,
+  };
+}
+
+/**
+ * run_project_tests: Execute safe contract and testing checks on the project
+ */
+function executeRunProjectTests(fileTree, args) {
+  if (!fileTree || typeof fileTree !== 'object') {
+    return { success: false, error: 'No project files available to run tests.' };
+  }
+
+  const { runProjectTests } = require('./testEngine');
+  const results = runProjectTests(fileTree, {
+    testSuite: args.test_suite || 'all',
+  });
+
+  return {
+    success: true,
+    message: `Test run finished: ${results.summary.passed} Passed, ${results.summary.failed} Failed, ${results.summary.notTested} Not Tested (manual preview verification required).`,
+    testResults: results,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main tool executor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -636,6 +722,10 @@ function executeTool(toolName, args, fileTree, roomId = null) {
       return executeSearchCode(fileTree, args || {});
     case 'diagnose_code':
       return executeDiagnoseCode(fileTree, args || {});
+    case 'generate_test_plan':
+      return executeGenerateTestPlan(fileTree, args || {});
+    case 'run_project_tests':
+      return executeRunProjectTests(fileTree, args || {});
     case 'propose_file_edit':
       return executeProposeFileEdit(fileTree, args || {}, roomId);
     case 'propose_file_changes':
@@ -651,6 +741,8 @@ module.exports = {
   executeProposeFileEdit,
   executeProposeFileChanges,
   executeDiagnoseCode,
+  executeGenerateTestPlan,
+  executeRunProjectTests,
   sanitizeProjectPath,
   isExcludedOrSensitive,
 };

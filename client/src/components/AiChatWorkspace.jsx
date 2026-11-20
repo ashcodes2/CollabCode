@@ -17,7 +17,8 @@ import {
   Sparkles, Send, Trash2, RotateCcw, Copy, Check, X,
   Bot, User, Code2, AlertCircle, ArrowLeft, Terminal,
   ExternalLink, Lightbulb, FileCode, CheckCircle2,
-  XCircle, Layers, FilePlus, FileEdit, Eye, AlertTriangle
+  XCircle, Layers, FilePlus, FileEdit, Eye, AlertTriangle,
+  ShieldCheck, HelpCircle, Play
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -382,6 +383,192 @@ function DiffPreview({ proposal, onApprove, onReject }) {
   );
 }
 
+// ── Test Results Card (Phase 4: Testing Agent) ──────────────────────────────
+function TestResultsCard({ testResults, onFixTest }) {
+  const [filter, setFilter] = useState('all');
+  if (!testResults || !Array.isArray(testResults.results)) return null;
+
+  const results = testResults.results;
+  const filtered = results.filter(r => {
+    if (filter === 'all') return true;
+    return r.status === filter;
+  });
+
+  const { passed, failed, notTested, total } = testResults.summary || {
+    passed: results.filter(r => r.status === 'passed').length,
+    failed: results.filter(r => r.status === 'failed').length,
+    notTested: results.filter(r => r.status === 'not_tested').length,
+    total: results.length,
+  };
+
+  return (
+    <div className="cc-test-results-box" style={{ marginTop: 12, background: '#1c1f26', border: '1px solid #2d333b', borderRadius: 8, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13, color: '#f1f3f7' }}>
+          <ShieldCheck size={16} color="#818cf8" />
+          <span>Project Test Results ({total})</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {failed > 0 && (
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', fontWeight: 600 }}>
+              {failed} Failed
+            </span>
+          )}
+          {passed > 0 && (
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', fontWeight: 600 }}>
+              {passed} Passed
+            </span>
+          )}
+          {notTested > 0 && (
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', fontWeight: 600 }}>
+              {notTested} Not Tested
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        {['all', 'failed', 'not_tested', 'passed'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setFilter(tab)}
+            type="button"
+            style={{
+              fontSize: 11,
+              padding: '3px 8px',
+              borderRadius: 4,
+              border: 'none',
+              background: filter === tab ? '#374151' : '#222631',
+              color: filter === tab ? '#ffffff' : '#9ca3af',
+              cursor: 'pointer',
+              textTransform: 'capitalize',
+            }}
+          >
+            {tab.replace('_', ' ')}
+          </button>
+        ))}
+      </div>
+
+      {/* Test List */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {filtered.map(test => {
+          const isPass = test.status === 'passed';
+          const isFail = test.status === 'failed';
+          const statusColor = isPass ? '#34d399' : isFail ? '#f87171' : '#fbbf24';
+          const statusBg = isPass ? 'rgba(16, 185, 129, 0.1)' : isFail ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)';
+
+          return (
+            <div
+              key={test.id}
+              style={{
+                background: '#15171c',
+                border: `1px solid ${isFail ? 'rgba(239, 68, 68, 0.3)' : '#2d333b'}`,
+                borderRadius: 6,
+                padding: '8px 10px',
+                fontSize: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {isPass && <CheckCircle2 size={14} color="#34d399" />}
+                  {isFail && <XCircle size={14} color="#f87171" />}
+                  {!isPass && !isFail && <HelpCircle size={14} color="#fbbf24" />}
+                  <span style={{ fontWeight: 600, color: '#f1f3f7' }}>{test.id}: {test.name}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#222631', color: '#9ca3af' }}>
+                    {test.type}
+                  </span>
+                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: statusBg, color: statusColor, fontWeight: 600 }}>
+                    {test.status.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>
+                <strong style={{ color: '#d1d5db' }}>Expected:</strong> {test.expected}
+              </div>
+              {test.actual && (
+                <div style={{ fontSize: 11, color: isFail ? '#fca5a5' : '#9ca3af', marginBottom: 2 }}>
+                  <strong style={{ color: '#d1d5db' }}>Actual:</strong> {test.actual}
+                </div>
+              )}
+              {test.errorDetails && (
+                <div style={{ fontSize: 11, color: '#f87171', background: 'rgba(239, 68, 68, 0.15)', padding: '4px 6px', borderRadius: 4, marginTop: 4 }}>
+                  {test.errorDetails}
+                </div>
+              )}
+              {isFail && onFixTest && (
+                <button
+                  type="button"
+                  onClick={() => onFixTest(test)}
+                  style={{
+                    marginTop: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontSize: 11,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    border: '1px solid rgba(129, 140, 248, 0.4)',
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    color: '#a5b4fc',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Sparkles size={11} />
+                  <span>Propose Fix with AI</span>
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Test Plan Card (Phase 4: Testing Agent) ─────────────────────────────────
+function TestPlanCard({ testPlan }) {
+  if (!testPlan || !Array.isArray(testPlan.testCases)) return null;
+
+  return (
+    <div className="cc-test-plan-box" style={{ marginTop: 12, background: '#1c1f26', border: '1px solid #2d333b', borderRadius: 8, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13, color: '#f1f3f7' }}>
+          <ShieldCheck size={16} color="#818cf8" />
+          <span>Testing Checklist & Plan ({testPlan.summary?.total || testPlan.testCases.length} cases)</span>
+        </div>
+      </div>
+
+      {testPlan.featuresDetected && testPlan.featuresDetected.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {testPlan.featuresDetected.map((feat, idx) => (
+            <span key={idx} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#222631', color: '#c7d2fe', border: '1px solid #374151' }}>
+              {feat}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {testPlan.missingScenarios && testPlan.missingScenarios.length > 0 && (
+        <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 6, padding: '8px 10px', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f87171', fontWeight: 600, fontSize: 11, marginBottom: 4 }}>
+            <AlertTriangle size={13} />
+            <span>Missing Validation & Test Gaps Detected</span>
+          </div>
+          {testPlan.missingScenarios.map((ms, idx) => (
+            <div key={idx} style={{ fontSize: 11, color: '#fca5a5', marginTop: 2 }}>
+              • <strong>{ms.feature}:</strong> {ms.issue} — <em>{ms.recommendation}</em>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Dedicated CollabCode AI Chat Workspace Component ──────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
@@ -450,10 +637,10 @@ export default function AiChatWorkspace({
 
   // Quick Starter Prompts
   const quickPrompts = [
-    { title: 'Center with Flexbox', prompt: 'How do I center a div horizontally and vertically using modern CSS Flexbox and Grid?' },
+    { title: 'Test My Project', prompt: 'Test my project: inspect my files, generate a testing checklist, identify edge cases and test for bugs.' },
     { title: 'Interactive Button JS', prompt: 'Show me how to create an interactive button in JavaScript that changes background color and increments a counter.' },
+    { title: 'Center with Flexbox', prompt: 'How do I center a div horizontally and vertically using modern CSS Flexbox and Grid?' },
     { title: 'Responsive Navbar', prompt: 'Write an HTML and CSS responsive navigation bar with a mobile hamburger menu.' },
-    { title: 'Async/Await vs Promises', prompt: 'Explain the difference between JavaScript Promises and async/await with clean examples.' },
   ];
 
   // ── Send Message to Backend Groq Service ──────────────────────────────────
@@ -580,6 +767,8 @@ export default function AiChatWorkspace({
         content: data.message.content,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         proposal: data.proposal || null,
+        testPlan: data.testPlan || null,
+        testResults: data.testResults || null,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -714,6 +903,17 @@ export default function AiChatWorkspace({
                     </div>
 
                     <FormattedMessage content={msg.content} />
+
+                    {msg.testResults && (
+                      <TestResultsCard
+                        testResults={msg.testResults}
+                        onFixTest={(test) => handleSendMessage(`Please fix failing test ${test.id} (${test.name}). Root cause: ${test.errorDetails || test.actual}. Propose the needed code changes.`)}
+                      />
+                    )}
+
+                    {msg.testPlan && !msg.testResults && (
+                      <TestPlanCard testPlan={msg.testPlan} />
+                    )}
 
                     {msg.proposal && (
                       <DiffPreview

@@ -19,6 +19,8 @@ You have access to the user's current project files through these tools:
 - **read_file**: Read the content of any project file
 - **search_code**: Search for keywords, functions, variables, or patterns across all project files
 - **diagnose_code**: Run static diagnostics across HTML, CSS, and JS files to detect syntax errors, missing DOM IDs, broken script/style tags, head-script timing bugs, event listener typos, and counter logic issues
+- **generate_test_plan**: Create a comprehensive test plan with categorized test cases (normal, edge cases, invalid inputs) and identify missing test scenarios and validation gaps
+- **run_project_tests**: Execute safe contract tests and automated validations on HTML, CSS, and JS without running untrusted code on the backend
 - **propose_file_edit**: Propose creating a new file or modifying an existing file (HTML, CSS, JS)
 - **propose_file_changes**: Propose changes across multiple files at once
 
@@ -27,7 +29,31 @@ IMPORTANT RULES:
 2. Use list_files to understand the project structure before reading specific files.
 3. Use read_file to get actual file content before explaining, reviewing, or suggesting changes to code.
 4. Use search_code to find where functions, variables, classes, or CSS rules are defined or used.
-5. DEBUGGING & ERROR ANALYSIS RULES (Phase 3):
+5. TESTING & TEST PLANNING RULES (Phase 4):
+   - When the user asks to test their project, test a feature (e.g. login form, counter, calculator), or generate test cases:
+     a. First inspect relevant project files using read_file or list_files.
+     b. Call generate_test_plan and run_project_tests to retrieve structured test suites and contract validations.
+     c. Generate meaningful test cases covering:
+        - Normal scenarios (expected positive flows)
+        - Edge cases (boundaries, zero/negatives, rapid actions, consecutive operators)
+        - Invalid inputs (malformed email, empty inputs, whitespace-only, multiple decimals)
+     d. Explain the expected result for every test case.
+     e. When the user asks "Test my project":
+        - Identify important interactive features (forms, counters, calculators, navigation).
+        - Generate a structured testing checklist.
+        - Identify missing test scenarios and missing validation rules (e.g., missing empty input check, missing division-by-zero guard, counter string concatenation).
+        - Explain clearly what should work and what could fail.
+     f. Display results in a clear structured format:
+        - Status: Passed | Failed | Not Tested
+        - Expected result
+        - Actual result (when available)
+        - Error details explained in simple, clear language
+     g. STRICT HONESTY RULE: Never claim a test passed unless it actually ran and passed. Clearly distinguish generated/planned test cases from tests that were executed. For tests requiring manual execution in Live Preview, mark them as "Not Tested" and provide clear step-by-step instructions.
+     h. If tests identify bugs or contract failures:
+        - Explain the root cause clearly.
+        - Automatically invoke propose_file_edit (or propose_file_changes) to propose the fix.
+        - Require explicit user approval in the Diff Preview before changes are applied.
+6. DEBUGGING & ERROR ANALYSIS RULES (Phase 3):
    - When the user reports an error, asks to find bugs, or asks why something is not working (e.g. button click not working, CSS styles not applying, counter not updating, or a browser console error):
      a. First, call diagnose_code (passing error_message if provided) and read relevant project files (e.g. index.html, style.css, script.js) with read_file.
      b. Clearly identify the ROOT CAUSE of the bug. Distinguish confirmed errors from potential warnings.
@@ -35,7 +61,7 @@ IMPORTANT RULES:
      d. ALWAYS propose the practical fix using propose_file_edit (or propose_file_changes for multi-file issues).
      e. The proposed fix will display in the Diff Preview for the user to Approve or Reject before any file is touched.
      f. Do NOT pretend to access the browser console automatically; analyze the user's report and project files.
-6. CODE GENERATION & FILE EDITING RULES:
+7. CODE GENERATION & FILE EDITING RULES:
    - When the user asks to modify, create, update, or add code to their project:
      a. FIRST inspect relevant existing files with read_file or list_files to understand the existing project structure, styling, and coding conventions.
      b. Then ALWAYS invoke the propose_file_edit (or propose_file_changes) function tool via tool_calls providing the COMPLETE, usable, updated or new file content. Do NOT print JSON or text proposals instead of invoking the tool.
@@ -43,8 +69,8 @@ IMPORTANT RULES:
      d. The backend will compute a line-by-line diff preview requiring the user to explicitly click Approve before any changes are written.
      e. Only HTML, CSS, and JavaScript files are supported for editing. Never attempt to edit sensitive files like .env or configuration files.
      f. Never modify unrelated files.
-7. When reviewing code, read the actual file first, then provide specific feedback with line references.
-8. For general programming questions NOT about the user's project, answer directly without tools.
+8. When reviewing code, read the actual file first, then provide specific feedback with line references.
+9. For general programming questions NOT about the user's project, answer directly without tools.
 
 You are especially knowledgeable about:
 - HTML, CSS, JavaScript, React, Node.js
@@ -198,6 +224,8 @@ router.post('/chat', async (req, res) => {
     // Track tool calls for the response
     const toolCallsLog = [];
     let activeProposal = null;
+    let activeTestPlan = null;
+    let activeTestResults = null;
 
     // ── Agentic Loop: allow up to MAX_TOOL_ITERATIONS rounds ──────────────
     let iteration = 0;
@@ -240,6 +268,12 @@ router.post('/chat', async (req, res) => {
 
           if (toolResult && toolResult.proposal) {
             activeProposal = toolResult.proposal;
+          }
+          if (toolResult && toolResult.testPlan) {
+            activeTestPlan = toolResult.testPlan;
+          }
+          if (toolResult && toolResult.testResults) {
+            activeTestResults = toolResult.testResults;
           }
 
           toolCallsLog.push({
@@ -299,6 +333,8 @@ router.post('/chat', async (req, res) => {
       model: lastData?.model || model,
       toolCalls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
       proposal: activeProposal || undefined,
+      testPlan: activeTestPlan || undefined,
+      testResults: activeTestResults || undefined,
     });
   } catch (error) {
     if (error.name === 'AbortError') {
