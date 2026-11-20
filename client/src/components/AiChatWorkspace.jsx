@@ -383,9 +383,12 @@ function DiffPreview({ proposal, onApprove, onReject }) {
   );
 }
 
-// ── Test Results Card (Phase 4: Testing Agent) ──────────────────────────────
-function TestResultsCard({ testResults, onFixTest }) {
+// ── Test Results Card (Phase 4 & 5: Testing Agent with Runtime Browser Testing) ─
+function TestResultsCard({ testResults, onFixTest, onRunRuntimeTests, onUpdateTestResults }) {
   const [filter, setFilter] = useState('all');
+  const [isRunningRuntime, setIsRunningRuntime] = useState(false);
+  const [runtimeExecutionError, setRuntimeExecutionError] = useState(null);
+
   if (!testResults || !Array.isArray(testResults.results)) return null;
 
   const results = testResults.results;
@@ -399,6 +402,24 @@ function TestResultsCard({ testResults, onFixTest }) {
     failed: results.filter(r => r.status === 'failed').length,
     notTested: results.filter(r => r.status === 'not_tested').length,
     total: results.length,
+  };
+
+  const handleExecuteInPreview = async () => {
+    if (!onRunRuntimeTests) return;
+    setIsRunningRuntime(true);
+    setRuntimeExecutionError(null);
+    try {
+      const response = await onRunRuntimeTests(results);
+      if (response && Array.isArray(response.results)) {
+        if (onUpdateTestResults) {
+          onUpdateTestResults(response.results, response.consoleLogs);
+        }
+      }
+    } catch (err) {
+      setRuntimeExecutionError(err.message || 'Failed to execute tests in browser preview.');
+    } finally {
+      setIsRunningRuntime(false);
+    }
   };
 
   return (
@@ -426,6 +447,50 @@ function TestResultsCard({ testResults, onFixTest }) {
           )}
         </div>
       </div>
+
+      {/* Run Runtime Tests Button */}
+      {onRunRuntimeTests && (
+        <div style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            disabled={isRunningRuntime}
+            onClick={handleExecuteInPreview}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '8px 12px',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isRunningRuntime ? 'not-allowed' : 'pointer',
+              opacity: isRunningRuntime ? 0.7 : 1,
+            }}
+          >
+            {isRunningRuntime ? (
+              <>
+                <RotateCcw size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                <span>Executing Interactive Tests in Live Preview...</span>
+              </>
+            ) : (
+              <>
+                <Play size={13} fill="currentColor" />
+                <span>{notTested > 0 ? `Run Interactive Tests in Live Preview (${notTested} unverified)` : 'Re-run All Tests in Live Preview'}</span>
+              </>
+            )}
+          </button>
+          {runtimeExecutionError && (
+            <div style={{ fontSize: 11, color: '#f87171', marginTop: 4, background: 'rgba(239,68,68,0.1)', padding: '4px 8px', borderRadius: 4 }}>
+              {runtimeExecutionError}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
@@ -497,6 +562,11 @@ function TestResultsCard({ testResults, onFixTest }) {
               {test.errorDetails && (
                 <div style={{ fontSize: 11, color: '#f87171', background: 'rgba(239, 68, 68, 0.15)', padding: '4px 6px', borderRadius: 4, marginTop: 4 }}>
                   {test.errorDetails}
+                </div>
+              )}
+              {test.runtimeErrors && test.runtimeErrors.length > 0 && (
+                <div style={{ fontSize: 11, color: '#fca5a5', background: 'rgba(239, 68, 68, 0.15)', padding: '4px 6px', borderRadius: 4, marginTop: 4 }}>
+                  <strong>Runtime Error:</strong> {test.runtimeErrors.join('; ')}
                 </div>
               )}
               {isFail && onFixTest && (
@@ -597,10 +667,33 @@ export default function AiChatWorkspace({
   isVisible = true,
   onApproveProposal,
   onRejectProposal,
+  onRunRuntimeTests,
+  runtimeConsoleLogs,
 }) {
   const [internalMessages, setInternalMessages] = useState(DEFAULT_AI_MESSAGES);
   const messages = parentMessages !== undefined ? parentMessages : internalMessages;
   const setMessages = parentSetMessages || setInternalMessages;
+
+  const handleUpdateTestResults = useCallback((messageId, newResults, consoleLogs) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id === messageId) {
+        const passed = newResults.filter(r => r.status === 'passed').length;
+        const failed = newResults.filter(r => r.status === 'failed').length;
+        const notTested = newResults.filter(r => r.status === 'not_tested').length;
+
+        return {
+          ...m,
+          testResults: {
+            ...m.testResults,
+            summary: { total: newResults.length, passed, failed, notTested },
+            results: newResults,
+            consoleLogs,
+          },
+        };
+      }
+      return m;
+    }));
+  }, [setMessages]);
 
   const [internalInputPrompt, setInternalInputPrompt] = useState('');
   const inputPrompt = parentInputPrompt !== undefined ? parentInputPrompt : internalInputPrompt;
@@ -907,7 +1000,9 @@ export default function AiChatWorkspace({
                     {msg.testResults && (
                       <TestResultsCard
                         testResults={msg.testResults}
-                        onFixTest={(test) => handleSendMessage(`Please fix failing test ${test.id} (${test.name}). Root cause: ${test.errorDetails || test.actual}. Propose the needed code changes.`)}
+                        onRunRuntimeTests={onRunRuntimeTests}
+                        onUpdateTestResults={(updatedResults, logs) => handleUpdateTestResults(msg.id, updatedResults, logs)}
+                        onFixTest={(test) => handleSendMessage(`Runtime browser test failed for ${test.id} (${test.name}). Expected: ${test.expected}. Actual in Live Preview DOM: ${test.actual}.${test.errorDetails ? ` Error details: ${test.errorDetails}.` : ''} Please diagnose with analyze_runtime_test_failure and propose the fix.`)}
                       />
                     )}
 

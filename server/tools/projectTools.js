@@ -336,6 +336,27 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'analyze_runtime_test_failure',
+      description:
+        'Analyze a failed runtime test from the browser Live Preview. ' +
+        'Evaluates actual DOM behavior, runtime JavaScript errors, and console output to determine the root cause and provide actionable fix guidance for propose_file_edit.',
+      parameters: {
+        type: 'object',
+        properties: {
+          test_id: { type: 'string', description: 'Identifier of the failed test (e.g. "TC-COUNT-001", "TC-LOGIN-003").' },
+          expected: { type: 'string', description: 'The expected DOM state or user behavior.' },
+          actual: { type: 'string', description: 'The actual observed DOM state or behavior in the browser preview.' },
+          runtime_error: { type: 'string', description: 'Optional runtime exception or error stack captured during testing.' },
+          console_logs: { type: 'array', items: { type: 'string' }, description: 'Recent browser console output.' },
+          target_file: { type: 'string', description: 'The file likely containing the bug (e.g. "script.js").' },
+        },
+        required: ['test_id'],
+      },
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -700,6 +721,19 @@ function executeRunProjectTests(fileTree, args) {
   };
 }
 
+/**
+ * analyze_runtime_test_failure: Analyze browser runtime test failure
+ */
+function executeAnalyzeRuntimeTestFailure(fileTree, args) {
+  const { analyzeRuntimeTestFailure } = require('./testEngine');
+  const analysis = analyzeRuntimeTestFailure(args);
+  return {
+    success: true,
+    message: `Runtime failure analyzed for ${analysis.testId}: Root Cause: ${analysis.rootCause}`,
+    analysis,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main tool executor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -726,6 +760,8 @@ function executeTool(toolName, args, fileTree, roomId = null) {
       return executeGenerateTestPlan(fileTree, args || {});
     case 'run_project_tests':
       return executeRunProjectTests(fileTree, args || {});
+    case 'analyze_runtime_test_failure':
+      return executeAnalyzeRuntimeTestFailure(fileTree, args || {});
     case 'propose_file_edit':
       return executeProposeFileEdit(fileTree, args || {}, roomId);
     case 'propose_file_changes':
@@ -743,6 +779,7 @@ module.exports = {
   executeDiagnoseCode,
   executeGenerateTestPlan,
   executeRunProjectTests,
+  executeAnalyzeRuntimeTestFailure,
   sanitizeProjectPath,
   isExcludedOrSensitive,
 };

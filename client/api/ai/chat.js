@@ -8,7 +8,7 @@
 
 import crypto from 'crypto';
 import { diagnoseProject } from './diagnostic.js';
-import { generateTestPlan, runProjectTests } from './testEngine.js';
+import { generateTestPlan, runProjectTests, analyzeRuntimeTestFailure } from './testEngine.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
@@ -199,6 +199,27 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'analyze_runtime_test_failure',
+      description:
+        'Analyze a failed runtime test from the browser Live Preview. ' +
+        'Evaluates actual DOM behavior, runtime JavaScript errors, and console output to determine the root cause and provide actionable fix guidance for propose_file_edit.',
+      parameters: {
+        type: 'object',
+        properties: {
+          test_id: { type: 'string', description: 'Identifier of the failed test (e.g. "TC-COUNT-001", "TC-LOGIN-003").' },
+          expected: { type: 'string', description: 'The expected DOM state or user behavior.' },
+          actual: { type: 'string', description: 'The actual observed DOM state or behavior in the browser preview.' },
+          runtime_error: { type: 'string', description: 'Optional runtime exception or error stack captured during testing.' },
+          console_logs: { type: 'array', items: { type: 'string' }, description: 'Recent browser console output.' },
+          target_file: { type: 'string', description: 'The file likely containing the bug (e.g. "script.js").' },
+        },
+        required: ['test_id'],
+      },
+    },
+  },
 ];
 
 function executeTool(name, args, fileTree) {
@@ -318,6 +339,15 @@ function executeTool(name, args, fileTree) {
     };
   }
 
+  if (name === 'analyze_runtime_test_failure') {
+    const analysis = analyzeRuntimeTestFailure(args);
+    return {
+      success: true,
+      message: `Runtime failure analyzed for ${analysis.testId}: Root Cause: ${analysis.rootCause}`,
+      analysis,
+    };
+  }
+
   return { success: false, error: `Unknown tool: "${name}"` };
 }
 
@@ -332,6 +362,7 @@ You have access to the user's current project files through these tools:
 - **diagnose_code**: Run static diagnostics across HTML, CSS, and JS files to detect syntax errors, missing DOM IDs, broken script/style tags, head-script timing bugs, event listener typos, and counter logic issues
 - **generate_test_plan**: Create a comprehensive test plan with categorized test cases (normal, edge cases, invalid inputs) and identify missing test scenarios and validation gaps
 - **run_project_tests**: Execute safe contract tests and automated validations on HTML, CSS, and JS without running untrusted code on the backend
+- **analyze_runtime_test_failure**: Analyze real browser runtime test failures, inspecting actual DOM state, runtime exceptions, and console logs to isolate root causes and guide fixes
 - **propose_file_edit**: Propose creating a new file or modifying an existing file (HTML, CSS, JS)
 - **propose_file_changes**: Propose changes across multiple files at once
 
@@ -340,7 +371,14 @@ IMPORTANT RULES:
 2. Use list_files to understand the project structure before reading specific files.
 3. Use read_file to get actual file content before explaining, reviewing, or suggesting changes to code.
 4. Use search_code to find where functions, variables, classes, or CSS rules are defined or used.
-5. TESTING & TEST PLANNING RULES (Phase 4):
+5. RUNTIME BROWSER TESTING RULES (Phase 5):
+   - When the user shares runtime test results, live DOM behavior, or asks to diagnose/fix a failed runtime test executed in Live Preview:
+     a. Call analyze_runtime_test_failure passing test_id, expected, actual, runtime_error, and console_logs.
+     b. Read relevant project files (e.g. script.js, index.html) with read_file.
+     c. Clearly explain the ROOT CAUSE of the runtime failure (e.g. DOM string concatenation bug, unhandled division by zero, missing event.preventDefault(), missing empty input validation).
+     d. ALWAYS propose the fix using propose_file_edit (or propose_file_changes) so the user can review line-by-line diffs in the Diff Preview.
+     e. Never modify files without explicit user approval.
+6. TESTING & TEST PLANNING RULES (Phase 4):
    - When the user asks to test their project, test a feature (e.g. login form, counter, calculator), or generate test cases:
      a. First inspect relevant project files using read_file or list_files.
      b. Call generate_test_plan and run_project_tests to retrieve structured test suites and contract validations.

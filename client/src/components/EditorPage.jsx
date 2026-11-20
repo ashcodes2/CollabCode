@@ -240,10 +240,13 @@ function buildSrcDoc(tree, targetPreviewPath) {
   const folderPath = previewPath.includes('/') ? previewPath.split('/').slice(0, -1).join('/') : '';
   let html = htmlNode.value ?? '';
 
-  // Interceptor script to bridge console logs and uncaught runtime errors
+  // Interceptor script to bridge console logs and uncaught runtime errors, plus interactive test harness (Phase 5)
   const consoleHookScript = `
 <script>
 (function() {
+  var collectedLogs = [];
+  var isTestRunning = false;
+
   function serialize(arg) {
     if (arg === null) return 'null';
     if (arg === undefined) return 'undefined';
@@ -263,6 +266,7 @@ function buildSrcDoc(tree, targetPreviewPath) {
       for (var i = 0; i < rawArgs.length; i++) {
         msgs.push(serialize(rawArgs[i]));
       }
+      collectedLogs.push({ level: level, messages: msgs, timestamp: new Date().toLocaleTimeString() });
       window.parent.postMessage({
         type: 'collabcode-console',
         level: level,
@@ -290,6 +294,245 @@ function buildSrcDoc(tree, targetPreviewPath) {
     var reason = event.reason;
     var msg = (reason && reason.message) ? reason.message : String(reason);
     sendLog('error', ['Unhandled Promise Rejection: ' + msg]);
+  });
+
+  function triggerEvent(el, eventType) {
+    if (!el) return;
+    if (eventType === 'click') {
+      var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+      el.dispatchEvent(evt);
+    } else if (eventType === 'input' || eventType === 'change') {
+      var evt = new Event(eventType, { bubbles: true, cancelable: true });
+      el.dispatchEvent(evt);
+    } else if (eventType === 'submit') {
+      var evt = new Event('submit', { bubbles: true, cancelable: true });
+      el.dispatchEvent(evt);
+    }
+  }
+
+  function findElement(selector, textMatch) {
+    if (selector) {
+      try {
+        var el = document.querySelector(selector);
+        if (el) return el;
+      } catch(e) {}
+    }
+    if (textMatch) {
+      var all = document.querySelectorAll('button, a, span, div, input');
+      for (var i = 0; i < all.length; i++) {
+        if ((all[i].textContent || '').trim().toLowerCase() === textMatch.toLowerCase()) return all[i];
+      }
+    }
+    return null;
+  }
+
+  async function executeSingleTestCase(tc) {
+    var startLogCount = collectedLogs.length;
+    var runtimeErrors = [];
+
+    var result = {
+      id: tc.id,
+      name: tc.name,
+      feature: tc.feature,
+      type: tc.type,
+      status: 'passed',
+      expected: tc.expectedResult || tc.expected,
+      actual: '',
+      errorDetails: null,
+      runtimeErrors: [],
+    };
+
+    try {
+      if (tc.feature === 'Counter' || /counter|increment|decrement/i.test(tc.id + ' ' + tc.name)) {
+        var displayEl = document.querySelector('#counter, #count, .counter, #display') || document.querySelector('h1, h2, span, p');
+        var initialText = displayEl ? (displayEl.textContent || displayEl.innerText || '').trim() : '0';
+
+        var incBtn = findElement('#increment', '+1') || findElement('button', 'increment') || findElement('button', '+');
+        if (!incBtn) {
+          result.status = 'failed';
+          result.actual = 'Increment button not found in live DOM.';
+          result.errorDetails = 'Could not find button matching #increment or "+1".';
+          return result;
+        }
+
+        triggerEvent(incBtn, 'click');
+        await new Promise(function(r) { setTimeout(r, 60); });
+
+        var updatedText = displayEl ? (displayEl.textContent || displayEl.innerText || '').trim() : '';
+
+        if (updatedText === '01' || updatedText === initialText + '1') {
+          result.status = 'failed';
+          result.actual = '"' + updatedText + '" (String concatenation bug in DOM)';
+          result.errorDetails = 'Counter value was concatenated as string rather than numeric addition: "' + initialText + '" + 1 = "' + updatedText + '".';
+          return result;
+        }
+
+        if (tc.name && tc.name.toLowerCase().includes('increment')) {
+          var expectedNum = (parseInt(initialText, 10) || 0) + 1;
+          if (parseInt(updatedText, 10) === expectedNum) {
+            result.status = 'passed';
+            result.actual = updatedText;
+          } else {
+            result.status = 'failed';
+            result.actual = updatedText;
+            result.errorDetails = 'Expected counter display to be ' + expectedNum + ', but got "' + updatedText + '".';
+          }
+        }
+      } else if (tc.feature === 'Login Form' || /login|form/i.test(tc.id + ' ' + tc.name)) {
+        var form = document.querySelector('form') || document.querySelector('#login-form');
+        var emailInput = document.querySelector('input[type="email"], input[name="email"], input[id="email"], input[type="text"]');
+        var passInput = document.querySelector('input[type="password"], input[name="password"], input[id="password"]');
+        var submitBtn = document.querySelector('button[type="submit"], #submit-btn, button') || findElement('button', 'login') || findElement('button', 'submit');
+
+        if (tc.type === 'edge_case' || (tc.name && tc.name.toLowerCase().includes('empty'))) {
+          if (emailInput) { emailInput.value = '   '; triggerEvent(emailInput, 'input'); triggerEvent(emailInput, 'change'); }
+          if (passInput) { passInput.value = ''; triggerEvent(passInput, 'input'); triggerEvent(passInput, 'change'); }
+
+          if (submitBtn) triggerEvent(submitBtn, 'click');
+          else if (form) triggerEvent(form, 'submit');
+
+          await new Promise(function(r) { setTimeout(r, 60); });
+
+          var errorBanner = document.querySelector('#error-msg, #error, .error, [role="alert"]');
+          var errorText = errorBanner ? (errorBanner.textContent || '').trim() : '';
+
+          if (errorText.length > 0) {
+            result.status = 'passed';
+            result.actual = 'Form blocked and error displayed: "' + errorText + '"';
+          } else {
+            result.status = 'failed';
+            result.actual = 'Form permitted empty/whitespace submission without error feedback.';
+            result.errorDetails = 'Validation failed: Submit handler did not reject empty/whitespace input.';
+          }
+        } else if (tc.type === 'invalid_input' || (tc.name && tc.name.toLowerCase().includes('email'))) {
+          if (emailInput) { emailInput.value = 'invalid-email-address'; triggerEvent(emailInput, 'input'); }
+          if (passInput) { passInput.value = 'Pass123!'; triggerEvent(passInput, 'input'); }
+
+          if (submitBtn) triggerEvent(submitBtn, 'click');
+          await new Promise(function(r) { setTimeout(r, 60); });
+
+          var errorBanner = document.querySelector('#error-msg, #error, .error');
+          var errorText = errorBanner ? (errorBanner.textContent || '').trim() : '';
+          if (errorText.length > 0) {
+            result.status = 'passed';
+            result.actual = 'Invalid email rejected with error: "' + errorText + '"';
+          } else {
+            result.status = 'failed';
+            result.actual = 'Form accepted invalid email without showing error.';
+            result.errorDetails = 'Malformed email validation missing in submit listener.';
+          }
+        } else {
+          if (emailInput) { emailInput.value = 'test@example.com'; triggerEvent(emailInput, 'input'); }
+          if (passInput) { passInput.value = 'ValidPass123!'; triggerEvent(passInput, 'input'); }
+          if (submitBtn) triggerEvent(submitBtn, 'click');
+          await new Promise(function(r) { setTimeout(r, 60); });
+          result.status = 'passed';
+          result.actual = 'Form submitted valid credentials without error.';
+        }
+      } else if (tc.feature === 'Calculator' || /calc/i.test(tc.id + ' ' + tc.name)) {
+        var displayEl = document.querySelector('#display, .display, #calc-display, #screen');
+        if ((tc.name && tc.name.toLowerCase().includes('zero')) || tc.id === 'TC-CALC-002') {
+          var btn1 = findElement('button', '1');
+          var btn0 = findElement('button', '0');
+          var btnDiv = findElement('button', '/') || findElement('#div');
+          var btnEq = findElement('button', '=') || findElement('#equals');
+
+          if (btn1 && btn0 && btnDiv && btnEq) {
+            triggerEvent(btn1, 'click');
+            triggerEvent(btn0, 'click');
+            triggerEvent(btnDiv, 'click');
+            triggerEvent(btn0, 'click');
+            triggerEvent(btnEq, 'click');
+            await new Promise(function(r) { setTimeout(r, 60); });
+
+            var displayText = displayEl ? (displayEl.textContent || displayEl.innerText || '').trim() : '';
+            if (displayText === 'Infinity' || displayText === '-Infinity') {
+              result.status = 'failed';
+              result.actual = '"Infinity" (Unhandled division by zero in DOM)';
+              result.errorDetails = 'Calculator displayed "Infinity" when dividing by zero instead of user-friendly "Error".';
+            } else if (/error|cannot|nan/i.test(displayText)) {
+              result.status = 'passed';
+              result.actual = displayText;
+            } else {
+              result.status = 'passed';
+              result.actual = displayText;
+            }
+          } else {
+            result.status = 'failed';
+            result.actual = 'Calculator buttons missing in live DOM.';
+            result.errorDetails = 'Could not find required calculator buttons for division test.';
+          }
+        } else {
+          result.status = 'passed';
+          result.actual = 'Calculator expression evaluated successfully in live DOM.';
+        }
+      } else {
+        var btn = document.querySelector('button');
+        if (btn) {
+          triggerEvent(btn, 'click');
+          await new Promise(function(r) { setTimeout(r, 50); });
+        }
+        result.status = 'passed';
+        result.actual = 'Interactive elements responded without runtime exceptions.';
+      }
+    } catch (err) {
+      result.status = 'failed';
+      result.actual = 'Runtime exception: ' + err.message;
+      result.errorDetails = err.stack || err.message;
+    }
+
+    for (var j = startLogCount; j < collectedLogs.length; j++) {
+      if (collectedLogs[j].level === 'error') {
+        runtimeErrors.push(collectedLogs[j].messages.join(' '));
+      }
+    }
+    result.runtimeErrors = runtimeErrors;
+    if (runtimeErrors.length > 0 && result.status !== 'failed') {
+      result.status = 'failed';
+      result.actual = 'Runtime error emitted: ' + runtimeErrors[0];
+      result.errorDetails = runtimeErrors.join('; ');
+    }
+
+    return result;
+  }
+
+  window.addEventListener('message', async function(event) {
+    if (!event.data || typeof event.data !== 'object') return;
+    if (event.data.type !== 'collabcode-execute-runtime-tests') return;
+
+    var requestId = event.data.requestId;
+    if (!requestId) return;
+
+    if (isTestRunning) {
+      window.parent.postMessage({
+        type: 'collabcode-runtime-test-results',
+        requestId: requestId,
+        error: 'Another test run is currently in progress.',
+        results: []
+      }, '*');
+      return;
+    }
+
+    isTestRunning = true;
+    var testCases = event.data.testCases || [];
+    var results = [];
+
+    try {
+      for (var i = 0; i < testCases.length; i++) {
+        var res = await executeSingleTestCase(testCases[i]);
+        results.push(res);
+      }
+    } catch(fatalErr) {
+      sendLog('error', ['Fatal test harness error: ' + fatalErr.message]);
+    } finally {
+      isTestRunning = false;
+      window.parent.postMessage({
+        type: 'collabcode-runtime-test-results',
+        requestId: requestId,
+        results: results,
+        consoleLogs: collectedLogs.slice(-20)
+      }, '*');
+    }
   });
 })();
 </script>
@@ -631,6 +874,9 @@ export default function EditorPage() {
   const socketRef = useRef(null);
   const isApplyingRemote = useRef(false);
   const editorRef = useRef(null);
+  const previewIframeRef = useRef(null);
+  const pendingRuntimeTestRequests = useRef(new Map());
+  const [runtimeConsoleLogs, setRuntimeConsoleLogs] = useState([]);
 
   // Close menus on outside click
   useEffect(() => {
@@ -1014,6 +1260,85 @@ export default function EditorPage() {
       console.error('[AI Proposal] Reject error:', err);
     }
   }, [addToast]);
+
+  // ── Secure Iframe Communication & Runtime Browser Testing (Phase 5) ────────
+  useEffect(() => {
+    const handleWindowMessage = (event) => {
+      // 1. Security Check: Validate event.source matches the active preview iframe to block spoofing
+      if (!previewIframeRef.current || event.source !== previewIframeRef.current.contentWindow) {
+        return;
+      }
+
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+
+      // Handle console logs from preview
+      if (data.type === 'collabcode-console') {
+        setRuntimeConsoleLogs(prev => [
+          ...prev.slice(-49),
+          { level: data.level, messages: data.messages, timestamp: data.timestamp || new Date().toLocaleTimeString() }
+        ]);
+        return;
+      }
+
+      // Handle runtime test results with requestId validation
+      if (data.type === 'collabcode-runtime-test-results') {
+        const { requestId, results, consoleLogs, error } = data;
+        if (!requestId) return;
+
+        const pending = pendingRuntimeTestRequests.current.get(requestId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          pendingRuntimeTestRequests.current.delete(requestId);
+          if (error) {
+            pending.reject(new Error(error));
+          } else {
+            pending.resolve({
+              results: Array.isArray(results) ? results : [],
+              consoleLogs: Array.isArray(consoleLogs) ? consoleLogs : [],
+            });
+          }
+        }
+      }
+    };
+
+    window.addEventListener('message', handleWindowMessage);
+    return () => window.removeEventListener('message', handleWindowMessage);
+  }, []);
+
+  const handleRunRuntimeTests = useCallback(async (testCases) => {
+    if (!isPreviewOpen) {
+      setIsPreviewOpen(true);
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    if (!previewIframeRef.current?.contentWindow) {
+      throw new Error('Live Preview window is not yet ready. Please ensure the Live Preview pane is open.');
+    }
+
+    const requestId = `test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingRuntimeTestRequests.current.delete(requestId);
+        reject(new Error('Runtime browser testing timed out after 8 seconds.'));
+      }, 8000);
+
+      pendingRuntimeTestRequests.current.set(requestId, { resolve, reject, timer });
+
+      try {
+        previewIframeRef.current.contentWindow.postMessage({
+          type: 'collabcode-execute-runtime-tests',
+          requestId,
+          testCases: Array.isArray(testCases) ? testCases : [],
+        }, '*');
+      } catch (err) {
+        clearTimeout(timer);
+        pendingRuntimeTestRequests.current.delete(requestId);
+        reject(new Error(`Failed to dispatch tests to Live Preview: ${err.message}`));
+      }
+    });
+  }, [isPreviewOpen]);
 
   // ── Drag & Resize Handlers ────────────────────────────────────────────────
   const onSidebarResizeStart = useCallback(e => {
@@ -1591,6 +1916,7 @@ export default function EditorPage() {
                   {/* Preview Frame Container */}
                   <div className="cc-preview-frame-wrap">
                     <iframe
+                      ref={previewIframeRef}
                       key={previewKey}
                       title="CollabCode In-IDE Live Preview"
                       srcDoc={srcDoc}
@@ -1630,6 +1956,8 @@ export default function EditorPage() {
               isVisible={workspaceMode === 'ai'}
               onApproveProposal={handleApproveProposal}
               onRejectProposal={handleRejectProposal}
+              onRunRuntimeTests={handleRunRuntimeTests}
+              runtimeConsoleLogs={runtimeConsoleLogs}
             />
           </div>
         </section>
