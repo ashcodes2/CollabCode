@@ -1443,7 +1443,7 @@ export default function AiChatWorkspace({
 
       for (const endpoint of candidates) {
         const controller = new AbortController();
-        const timeoutTimer = setTimeout(() => controller.abort(), 65000);
+        const timeoutTimer = setTimeout(() => controller.abort(), 90000);
 
         try {
           const attemptRes = await fetch(endpoint, {
@@ -1480,7 +1480,7 @@ export default function AiChatWorkspace({
           }
         } catch (fetchErr) {
           if (fetchErr.name === 'AbortError') {
-            lastErrorMessage = 'Network timeout: The AI service took longer than 45 seconds to respond.';
+            lastErrorMessage = 'Network timeout: The AI service took longer than expected to respond. Please try again.';
           } else {
             lastErrorMessage = fetchErr.message;
           }
@@ -1520,7 +1520,7 @@ export default function AiChatWorkspace({
 
       let userFriendlyError = err.message;
       if (err.name === 'AbortError') {
-        userFriendlyError = 'Network timeout: The AI service took longer than 45 seconds to respond. Please try again.';
+        userFriendlyError = 'Network timeout: The AI service took longer than expected to respond. Please try again.';
       } else if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
         const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
         userFriendlyError = isHttps

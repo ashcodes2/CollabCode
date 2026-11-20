@@ -262,8 +262,22 @@ router.post('/chat', async (req, res) => {
     }
 
     // Build the conversation for the LLM
+    let systemContent = SYSTEM_PROMPT;
+    if (fileTree && Object.keys(fileTree).length > 0) {
+      const filesOverview = Object.entries(fileTree)
+        .slice(0, 15)
+        .map(([p, node]) => {
+          const content = typeof node === 'string' ? node : node?.value || node?.content || '';
+          const preview = content.length > 800 ? content.slice(0, 800) + '\n... [truncated]' : content;
+          return `--- File: ${p} ---\n${preview || '(empty)'}`;
+        })
+        .join('\n\n');
+
+      systemContent += `\n\nCURRENT PROJECT FILES:\n${filesOverview}\n(The above project files are already loaded. You do not need to call read_file or list_files unless you need to search or re-read truncated files. You can proceed directly to create_task_plan, propose_file_edit, or answer).`;
+    }
+
     let conversationMessages = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemContent },
       ...sanitizedMessages,
     ];
 
