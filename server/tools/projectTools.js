@@ -357,6 +357,79 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'create_task_plan',
+      description:
+        'Create a structured, ordered multi-step execution plan for complex features or development requests. ' +
+        'Breaks down requests into executable steps with clear dependencies, target files, and verification criteria. ' +
+        'The plan is presented to the user for explicit approval (Approve Plan, Reject Plan, or Modify Plan) before execution begins.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Concise title for the multi-step feature or task.' },
+          goal: { type: 'string', description: 'Overall goal of the development task.' },
+          steps: {
+            type: 'array',
+            description: 'Ordered sequence of steps to accomplish the goal.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Unique step identifier, e.g. "STEP-1", "STEP-2".' },
+                title: { type: 'string', description: 'Short summary of what this step does.' },
+                description: { type: 'string', description: 'Detailed instructions and objectives for this step.' },
+                actionType: {
+                  type: 'string',
+                  enum: ['inspect', 'modify_file', 'debug', 'test', 'verify'],
+                  description: 'Category of action for this step.',
+                },
+                targetFiles: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'List of project files to create or modify (e.g. ["index.html", "script.js"]).',
+                },
+                dependencies: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Step IDs that must be completed before this step can begin (e.g. ["STEP-1"]).',
+                },
+                verificationCriteria: {
+                  type: 'string',
+                  description: 'Specific test or verification rule to validate that this step succeeded.',
+                },
+              },
+              required: ['id', 'title', 'actionType', 'targetFiles'],
+            },
+          },
+        },
+        required: ['title', 'goal', 'steps'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task_step',
+      description:
+        'Update the execution status of a step in the active multi-step plan. ' +
+        'Used to mark steps in_progress, completed, failed, or blocked as the agent works through the approved plan.',
+      parameters: {
+        type: 'object',
+        properties: {
+          step_id: { type: 'string', description: 'The step ID being updated (e.g. "STEP-1").' },
+          status: {
+            type: 'string',
+            enum: ['in_progress', 'completed', 'failed', 'blocked', 'skipped'],
+            description: 'The updated status of the step.',
+          },
+          summary: { type: 'string', description: 'Summary of the action taken and result.' },
+          error_details: { type: 'string', description: 'Optional error description if the step failed.' },
+        },
+        required: ['step_id', 'status', 'summary'],
+      },
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -734,6 +807,58 @@ function executeAnalyzeRuntimeTestFailure(fileTree, args) {
   };
 }
 
+/**
+ * create_task_plan: Generate structured multi-step execution plan
+ */
+function executeCreateTaskPlan(fileTree, args, roomId) {
+  const { createExecutionPlan } = require('./taskExecutionEngine');
+  try {
+    const plan = createExecutionPlan({
+      title: args.title,
+      goal: args.goal,
+      steps: args.steps || [],
+      roomId,
+    });
+    return {
+      success: true,
+      message: `Execution plan "${plan.title}" created with ${plan.steps.length} steps. Awaiting explicit user approval before execution begins.`,
+      taskPlan: plan,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: `Failed to create execution plan: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * update_task_step: Update step status in an active plan
+ */
+function executeUpdateTaskStep(fileTree, args, roomId, activePlan) {
+  const { updatePlanStep } = require('./taskExecutionEngine');
+  try {
+    if (!activePlan) {
+      return { success: false, error: 'No active execution plan found to update.' };
+    }
+    const updated = updatePlanStep(activePlan, args.step_id, {
+      status: args.status,
+      outputSummary: args.summary,
+      errorDetails: args.error_details || null,
+    });
+    return {
+      success: true,
+      message: `Step "${args.step_id}" updated to status "${args.status}".`,
+      taskPlan: updated,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: `Failed to update task step: ${err.message}`,
+    };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main tool executor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -744,9 +869,10 @@ function executeAnalyzeRuntimeTestFailure(fileTree, args) {
  * @param {object} args - Parsed arguments from the LLM
  * @param {object} fileTree - The active project's file tree
  * @param {string|null} [roomId] - Active room ID
+ * @param {object} [context] - Execution context (e.g. activePlan)
  * @returns {object} Tool execution result
  */
-function executeTool(toolName, args, fileTree, roomId = null) {
+function executeTool(toolName, args, fileTree, roomId = null, context = {}) {
   switch (toolName) {
     case 'list_files':
       return executeListFiles(fileTree, args || {});
@@ -762,6 +888,10 @@ function executeTool(toolName, args, fileTree, roomId = null) {
       return executeRunProjectTests(fileTree, args || {});
     case 'analyze_runtime_test_failure':
       return executeAnalyzeRuntimeTestFailure(fileTree, args || {});
+    case 'create_task_plan':
+      return executeCreateTaskPlan(fileTree, args || {}, roomId);
+    case 'update_task_step':
+      return executeUpdateTaskStep(fileTree, args || {}, roomId, context.activeTaskPlan);
     case 'propose_file_edit':
       return executeProposeFileEdit(fileTree, args || {}, roomId);
     case 'propose_file_changes':
@@ -780,6 +910,8 @@ module.exports = {
   executeGenerateTestPlan,
   executeRunProjectTests,
   executeAnalyzeRuntimeTestFailure,
+  executeCreateTaskPlan,
+  executeUpdateTaskStep,
   sanitizeProjectPath,
   isExcludedOrSensitive,
 };

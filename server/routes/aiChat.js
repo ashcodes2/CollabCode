@@ -7,6 +7,7 @@ require('dotenv').config();
 
 const { TOOL_DEFINITIONS, executeTool } = require('../tools/projectTools');
 const { applyProposal, rejectProposal, getProposal } = require('../tools/proposalManager');
+const { handlePlanUserDecision, controlPlanExecution } = require('../tools/taskExecutionEngine');
 
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const MAX_TOOL_ITERATIONS = 5;
@@ -22,6 +23,8 @@ You have access to the user's current project files through these tools:
 - **generate_test_plan**: Create a comprehensive test plan with categorized test cases (normal, edge cases, invalid inputs) and identify missing test scenarios and validation gaps
 - **run_project_tests**: Execute safe contract tests and automated validations on HTML, CSS, and JS without running untrusted code on the backend
 - **analyze_runtime_test_failure**: Analyze real browser runtime test failures, inspecting actual DOM state, runtime exceptions, and console logs to isolate root causes and guide fixes
+- **create_task_plan**: Create a structured, ordered multi-step execution plan for complex development tasks with dependencies, target files, and verification criteria
+- **update_task_step**: Update step status ('in_progress', 'completed', 'failed', 'blocked', 'skipped') as tasks are executed
 - **propose_file_edit**: Propose creating a new file or modifying an existing file (HTML, CSS, JS)
 - **propose_file_changes**: Propose changes across multiple files at once
 
@@ -30,6 +33,27 @@ IMPORTANT RULES:
 2. Use list_files to understand the project structure before reading specific files.
 3. Use read_file to get actual file content before explaining, reviewing, or suggesting changes to code.
 4. Use search_code to find where functions, variables, classes, or CSS rules are defined or used.
+5. MULTI-STEP TASK EXECUTION RULES (Phase 6):
+   - When the user requests a complex feature, new application, multi-file modification, or multi-step workflow:
+     a. FIRST inspect existing project files with list_files and read_file to understand structure and dependencies.
+     b. Call create_task_plan with:
+        - title: Concise feature title
+        - goal: Complete objective
+        - steps: Ordered list of steps with unique IDs (e.g. STEP-1, STEP-2), targetFiles, dependencies, actionType, and verificationCriteria.
+     c. PLAN APPROVAL GATEWAY: Present the plan clearly and await explicit user approval. NEVER execute steps or modify files before the user clicks "Approve Plan".
+     d. SEQUENTIAL STEP EXECUTION:
+        - Once approved, execute steps in topological dependency order.
+        - Check that prerequisite steps are completed before starting dependent steps.
+        - For file edits, ALWAYS call propose_file_edit or propose_file_changes. The user must explicitly approve the Diff Preview before changes apply.
+        - Update step progress using update_task_step.
+     e. AUTOMATIC FAILURE RECOVERY:
+        - If an error or test failure occurs during a step, use diagnose_code (Phase 3) to find the root cause.
+        - Propose a fix through propose_file_edit (requires user approval).
+        - Maximum 2 recovery attempts per step. If still failing after 2 attempts, mark the step as BLOCKED and explain why. NEVER silently skip failed steps.
+     f. VERIFICATION & SUMMARY:
+        - Verify completed code with run_project_tests (Phase 4) and Live Preview testing (Phase 5).
+        - Do not claim success without verification.
+        - Display a final summary detailing all modified files and test outcomes.
 5. RUNTIME BROWSER TESTING RULES (Phase 5):
    - When the user shares runtime test results, live DOM behavior, or asks to diagnose/fix a failed runtime test executed in Live Preview:
      a. Call analyze_runtime_test_failure passing test_id, expected, actual, runtime_error, and console_logs.
@@ -165,7 +189,7 @@ async function callGroq(apiKey, model, messages, includeTools = false, retries =
  */
 router.post('/chat', async (req, res) => {
   try {
-    const { messages, roomId, fileTree: clientFileTree } = req.body;
+    const { messages, roomId, fileTree: clientFileTree, taskPlan: clientTaskPlan } = req.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required.' });
@@ -234,6 +258,7 @@ router.post('/chat', async (req, res) => {
     let activeProposal = null;
     let activeTestPlan = null;
     let activeTestResults = null;
+    let activeTaskPlan = clientTaskPlan || null;
 
     // ── Agentic Loop: allow up to MAX_TOOL_ITERATIONS rounds ──────────────
     let iteration = 0;
@@ -272,7 +297,7 @@ router.post('/chat', async (req, res) => {
 
           console.log(`[AI Agent] Tool call #${iteration}: ${toolName}(${JSON.stringify(toolArgs)})`);
 
-          const toolResult = executeTool(toolName, toolArgs, fileTree, roomId);
+          const toolResult = executeTool(toolName, toolArgs, fileTree, roomId, { activeTaskPlan });
 
           if (toolResult && toolResult.proposal) {
             activeProposal = toolResult.proposal;
@@ -282,6 +307,9 @@ router.post('/chat', async (req, res) => {
           }
           if (toolResult && toolResult.testResults) {
             activeTestResults = toolResult.testResults;
+          }
+          if (toolResult && toolResult.taskPlan) {
+            activeTaskPlan = toolResult.taskPlan;
           }
 
           toolCallsLog.push({
@@ -343,6 +371,7 @@ router.post('/chat', async (req, res) => {
       proposal: activeProposal || undefined,
       testPlan: activeTestPlan || undefined,
       testResults: activeTestResults || undefined,
+      taskPlan: activeTaskPlan || undefined,
     });
   } catch (error) {
     if (error.name === 'AbortError') {
@@ -376,6 +405,60 @@ router.post('/chat', async (req, res) => {
         ? 'Network error: Backend could not reach api.groq.com. Please check server internet connectivity.'
         : (error.message || 'An internal error occurred while communicating with Groq AI.'),
     });
+  }
+});
+
+/**
+ * POST /api/ai/plan/decision
+ * Handle user decision on a task execution plan: 'approve', 'reject', or 'modify'
+ */
+router.post('/plan/decision', (req, res) => {
+  try {
+    const { plan, action, options } = req.body || {};
+
+    if (!plan || typeof plan !== 'object') {
+      return res.status(400).json({ error: 'Valid plan object is required.' });
+    }
+    if (!['approve', 'reject', 'modify'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action. Must be "approve", "reject", or "modify".' });
+    }
+
+    const updatedPlan = handlePlanUserDecision(plan, action, options || {});
+    return res.json({
+      success: true,
+      action,
+      plan: updatedPlan,
+    });
+  } catch (err) {
+    console.error('[AI Agent] Plan decision error:', err);
+    return res.status(400).json({ error: err.message || 'Failed to process plan decision.' });
+  }
+});
+
+/**
+ * POST /api/ai/plan/control
+ * Control active plan execution: 'pause', 'resume', or 'cancel'
+ */
+router.post('/plan/control', (req, res) => {
+  try {
+    const { plan, action, reason } = req.body || {};
+
+    if (!plan || typeof plan !== 'object') {
+      return res.status(400).json({ error: 'Valid plan object is required.' });
+    }
+    if (!['pause', 'resume', 'cancel'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid control action. Must be "pause", "resume", or "cancel".' });
+    }
+
+    const updatedPlan = controlPlanExecution(plan, action, reason || '');
+    return res.json({
+      success: true,
+      action,
+      plan: updatedPlan,
+    });
+  } catch (err) {
+    console.error('[AI Agent] Plan control error:', err);
+    return res.status(400).json({ error: err.message || 'Failed to control plan execution.' });
   }
 });
 

@@ -9,6 +9,7 @@
 import crypto from 'crypto';
 import { diagnoseProject } from './diagnostic.js';
 import { generateTestPlan, runProjectTests, analyzeRuntimeTestFailure } from './testEngine.js';
+import { createExecutionPlan, updatePlanStep } from './taskExecutionEngine.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
@@ -220,9 +221,82 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'create_task_plan',
+      description:
+        'Create a structured, ordered multi-step execution plan for complex features or development requests. ' +
+        'Breaks down requests into executable steps with clear dependencies, target files, and verification criteria. ' +
+        'The plan is presented to the user for explicit approval (Approve Plan, Reject Plan, or Modify Plan) before execution begins.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Concise title for the multi-step feature or task.' },
+          goal: { type: 'string', description: 'Overall goal of the development task.' },
+          steps: {
+            type: 'array',
+            description: 'Ordered sequence of steps to accomplish the goal.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Unique step identifier, e.g. "STEP-1", "STEP-2".' },
+                title: { type: 'string', description: 'Short summary of what this step does.' },
+                description: { type: 'string', description: 'Detailed instructions and objectives for this step.' },
+                actionType: {
+                  type: 'string',
+                  enum: ['inspect', 'modify_file', 'debug', 'test', 'verify'],
+                  description: 'Category of action for this step.',
+                },
+                targetFiles: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'List of project files to create or modify (e.g. ["index.html", "script.js"]).',
+                },
+                dependencies: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Step IDs that must be completed before this step can begin (e.g. ["STEP-1"]).',
+                },
+                verificationCriteria: {
+                  type: 'string',
+                  description: 'Specific test or verification rule to validate that this step succeeded.',
+                },
+              },
+              required: ['id', 'title', 'actionType', 'targetFiles'],
+            },
+          },
+        },
+        required: ['title', 'goal', 'steps'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task_step',
+      description:
+        'Update the execution status of a step in the active multi-step plan. ' +
+        'Used to mark steps in_progress, completed, failed, or blocked as the agent works through the approved plan.',
+      parameters: {
+        type: 'object',
+        properties: {
+          step_id: { type: 'string', description: 'The step ID being updated (e.g. "STEP-1").' },
+          status: {
+            type: 'string',
+            enum: ['in_progress', 'completed', 'failed', 'blocked', 'skipped'],
+            description: 'The updated status of the step.',
+          },
+          summary: { type: 'string', description: 'Summary of the action taken and result.' },
+          error_details: { type: 'string', description: 'Optional error description if the step failed.' },
+        },
+        required: ['step_id', 'status', 'summary'],
+      },
+    },
+  },
 ];
 
-function executeTool(name, args, fileTree) {
+function executeTool(name, args, fileTree, context = {}) {
   if (!fileTree || typeof fileTree !== 'object') {
     return { success: false, error: 'No project files available.' };
   }
@@ -348,6 +422,43 @@ function executeTool(name, args, fileTree) {
     };
   }
 
+  if (name === 'create_task_plan') {
+    try {
+      const plan = createExecutionPlan({
+        title: args.title,
+        goal: args.goal,
+        steps: args.steps || [],
+      });
+      return {
+        success: true,
+        message: `Execution plan "${plan.title}" created with ${plan.steps.length} steps. Awaiting explicit user approval before execution begins.`,
+        taskPlan: plan,
+      };
+    } catch (err) {
+      return { success: false, error: `Failed to create execution plan: ${err.message}` };
+    }
+  }
+
+  if (name === 'update_task_step') {
+    try {
+      if (!context?.activeTaskPlan) {
+        return { success: false, error: 'No active execution plan found to update.' };
+      }
+      const updated = updatePlanStep(context.activeTaskPlan, args.step_id, {
+        status: args.status,
+        outputSummary: args.summary,
+        errorDetails: args.error_details || null,
+      });
+      return {
+        success: true,
+        message: `Step "${args.step_id}" updated to status "${args.status}".`,
+        taskPlan: updated,
+      };
+    } catch (err) {
+      return { success: false, error: `Failed to update task step: ${err.message}` };
+    }
+  }
+
   return { success: false, error: `Unknown tool: "${name}"` };
 }
 
@@ -363,6 +474,8 @@ You have access to the user's current project files through these tools:
 - **generate_test_plan**: Create a comprehensive test plan with categorized test cases (normal, edge cases, invalid inputs) and identify missing test scenarios and validation gaps
 - **run_project_tests**: Execute safe contract tests and automated validations on HTML, CSS, and JS without running untrusted code on the backend
 - **analyze_runtime_test_failure**: Analyze real browser runtime test failures, inspecting actual DOM state, runtime exceptions, and console logs to isolate root causes and guide fixes
+- **create_task_plan**: Create a structured, ordered multi-step execution plan for complex development tasks with dependencies, target files, and verification criteria
+- **update_task_step**: Update step status ('in_progress', 'completed', 'failed', 'blocked', 'skipped') as tasks are executed
 - **propose_file_edit**: Propose creating a new file or modifying an existing file (HTML, CSS, JS)
 - **propose_file_changes**: Propose changes across multiple files at once
 
@@ -371,6 +484,27 @@ IMPORTANT RULES:
 2. Use list_files to understand the project structure before reading specific files.
 3. Use read_file to get actual file content before explaining, reviewing, or suggesting changes to code.
 4. Use search_code to find where functions, variables, classes, or CSS rules are defined or used.
+5. MULTI-STEP TASK EXECUTION RULES (Phase 6):
+   - When the user requests a complex feature, new application, multi-file modification, or multi-step workflow:
+     a. FIRST inspect existing project files with list_files and read_file to understand structure and dependencies.
+     b. Call create_task_plan with:
+        - title: Concise feature title
+        - goal: Complete objective
+        - steps: Ordered list of steps with unique IDs (e.g. STEP-1, STEP-2), targetFiles, dependencies, actionType, and verificationCriteria.
+     c. PLAN APPROVAL GATEWAY: Present the plan clearly and await explicit user approval. NEVER execute steps or modify files before the user clicks "Approve Plan".
+     d. SEQUENTIAL STEP EXECUTION:
+        - Once approved, execute steps in topological dependency order.
+        - Check that prerequisite steps are completed before starting dependent steps.
+        - For file edits, ALWAYS call propose_file_edit or propose_file_changes. The user must explicitly approve the Diff Preview before changes apply.
+        - Update step progress using update_task_step.
+     e. AUTOMATIC FAILURE RECOVERY:
+        - If an error or test failure occurs during a step, use diagnose_code (Phase 3) to find the root cause.
+        - Propose a fix through propose_file_edit (requires user approval).
+        - Maximum 2 recovery attempts per step. If still failing after 2 attempts, mark the step as BLOCKED and explain why. NEVER silently skip failed steps.
+     f. VERIFICATION & SUMMARY:
+        - Verify completed code with run_project_tests (Phase 4) and Live Preview testing (Phase 5).
+        - Do not claim success without verification.
+        - Display a final summary detailing all modified files and test outcomes.
 5. RUNTIME BROWSER TESTING RULES (Phase 5):
    - When the user shares runtime test results, live DOM behavior, or asks to diagnose/fix a failed runtime test executed in Live Preview:
      a. Call analyze_runtime_test_failure passing test_id, expected, actual, runtime_error, and console_logs.
@@ -474,7 +608,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   try {
-    const { messages, fileTree: clientFileTree } = req.body || {};
+    const { messages, fileTree: clientFileTree, taskPlan: clientTaskPlan } = req.body || {};
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required.' });
@@ -508,6 +642,7 @@ export default async function handler(req, res) {
     const toolCallsLog = [];
     let activeTestPlan = null;
     let activeTestResults = null;
+    let activeTaskPlan = clientTaskPlan || null;
     let finalContent = null;
     let lastData = null;
 
@@ -527,9 +662,10 @@ export default async function handler(req, res) {
           let toolArgs = {};
           try { toolArgs = JSON.parse(tc.function?.arguments || '{}'); } catch { }
 
-          const result = executeTool(toolName, toolArgs, fileTree);
+          const result = executeTool(toolName, toolArgs, fileTree, { activeTaskPlan });
           if (result && result.testPlan) activeTestPlan = result.testPlan;
           if (result && result.testResults) activeTestResults = result.testResults;
+          if (result && result.taskPlan) activeTaskPlan = result.taskPlan;
           toolCallsLog.push({ tool: toolName, args: toolArgs, success: result.success !== false });
           conversationMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         }
@@ -554,6 +690,7 @@ export default async function handler(req, res) {
       toolCalls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
       testPlan: activeTestPlan || undefined,
       testResults: activeTestResults || undefined,
+      taskPlan: activeTaskPlan || undefined,
     });
   } catch (error) {
     if (error.name === 'AbortError') {

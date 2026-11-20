@@ -37,7 +37,7 @@ setInterval(() => {
       proposals.delete(id);
     }
   }
-}, 60000);
+}, 60000).unref();
 
 /**
  * Validates a proposed file change against security, type, and size restrictions.

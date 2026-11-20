@@ -18,7 +18,8 @@ import {
   Bot, User, Code2, AlertCircle, ArrowLeft, Terminal,
   ExternalLink, Lightbulb, FileCode, CheckCircle2,
   XCircle, Layers, FilePlus, FileEdit, Eye, AlertTriangle,
-  ShieldCheck, HelpCircle, Play
+  ShieldCheck, HelpCircle, Play, Pause, Square, ListTodo,
+  ChevronDown, ChevronUp, Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -639,6 +640,555 @@ function TestPlanCard({ testPlan }) {
   );
 }
 
+// ── Multi-Step Task Plan & Execution Card (Phase 6) ───────────────────────────
+function TaskPlanCard({
+  taskPlan,
+  onPlanDecision,
+  onPlanControl,
+  onExecuteStep,
+  onRecoverStep,
+}) {
+  const [expandedStepId, setExpandedStepId] = useState(null);
+  const [isModifying, setIsModifying] = useState(false);
+  const [modifyNotes, setModifyNotes] = useState('');
+
+  if (!taskPlan || !Array.isArray(taskPlan.steps)) return null;
+
+  const {
+    planId,
+    title,
+    goal,
+    status,
+    steps,
+    stats,
+    allTargetFiles = [],
+    userApproval,
+  } = taskPlan;
+
+  const isAwaitingApproval = status === 'awaiting_user_approval';
+  const isInProgress = status === 'in_progress';
+  const isPaused = status === 'paused';
+  const isCompleted = status === 'completed' || (stats && stats.completedSteps === stats.totalSteps && stats.totalSteps > 0);
+  const isBlocked = status === 'blocked';
+  const isCancelled = status === 'cancelled';
+  const isRejected = status === 'rejected';
+
+  const statusColors = {
+    awaiting_user_approval: { bg: 'rgba(245, 158, 11, 0.15)', text: '#fbbf24', border: '#f59e0b' },
+    approved: { bg: 'rgba(59, 130, 246, 0.15)', text: '#60a5fa', border: '#3b82f6' },
+    in_progress: { bg: 'rgba(99, 102, 241, 0.15)', text: '#818cf8', border: '#6366f1' },
+    paused: { bg: 'rgba(234, 179, 8, 0.15)', text: '#facc15', border: '#eab308' },
+    completed: { bg: 'rgba(16, 185, 129, 0.15)', text: '#34d399', border: '#10b981' },
+    blocked: { bg: 'rgba(239, 68, 68, 0.15)', text: '#f87171', border: '#ef4444' },
+    cancelled: { bg: 'rgba(107, 114, 128, 0.15)', text: '#9ca3af', border: '#6b7280' },
+    rejected: { bg: 'rgba(239, 68, 68, 0.15)', text: '#fca5a5', border: '#dc2626' },
+  };
+
+  const currentTheme = statusColors[status] || statusColors.in_progress;
+  const progressPercent = stats?.progressPercent || 0;
+
+  const toggleExpand = (stepId) => {
+    setExpandedStepId(prev => (prev === stepId ? null : stepId));
+  };
+
+  const handleModifySubmit = (e) => {
+    e.preventDefault();
+    if (onPlanDecision && modifyNotes.trim()) {
+      onPlanDecision(taskPlan, 'modify', { feedback: modifyNotes.trim() });
+      setIsModifying(false);
+      setModifyNotes('');
+    }
+  };
+
+  // Find the next step that can be executed
+  const nextExecutableStep = steps.find(s => s.status === 'pending');
+
+  return (
+    <div
+      className="cc-task-plan-box"
+      style={{
+        marginTop: 12,
+        background: '#181b22',
+        border: `1px solid ${currentTheme.border}40`,
+        borderRadius: 8,
+        padding: 14,
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+      }}
+    >
+      {/* ── Top Header & Status ────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ListTodo size={16} color="#818cf8" />
+            <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>
+              {title}
+            </h4>
+          </div>
+          {goal && (
+            <p style={{ margin: '4px 0 0 24px', fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>
+              {goal}
+            </p>
+          )}
+        </div>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            padding: '3px 9px',
+            borderRadius: 12,
+            background: currentTheme.bg,
+            color: currentTheme.text,
+            border: `1px solid ${currentTheme.border}60`,
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {status.replace(/_/g, ' ')}
+        </span>
+      </div>
+
+      {/* ── Progress Bar ────────────────────────────────────────────────────── */}
+      <div style={{ marginTop: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>
+          <span>Execution Progress</span>
+          <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
+            {stats?.completedSteps || 0} of {stats?.totalSteps || steps.length} steps completed ({progressPercent}%)
+          </span>
+        </div>
+        <div style={{ height: 6, background: '#262a35', borderRadius: 3, overflow: 'hidden' }}>
+          <div
+            style={{
+              height: '100%',
+              width: `${progressPercent}%`,
+              background: isCompleted ? '#10b981' : isBlocked ? '#ef4444' : 'linear-gradient(90deg, #6366f1, #818cf8)',
+              transition: 'width 0.4s ease',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* ── Plan Approval Gateway ───────────────────────────────────────────── */}
+      {isAwaitingApproval && (
+        <div
+          style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: 6,
+            padding: 10,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#fbbf24', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+            <AlertCircle size={14} />
+            <span>User Review Required Before Execution</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#d1d5db', marginBottom: 8, lineHeight: 1.4 }}>
+            Review the {steps.length} planned steps below. No files will be modified until you explicitly approve this execution plan.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => onPlanDecision && onPlanDecision(taskPlan, 'approve')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: '#10b981',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 5,
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Check size={13} />
+              <span>Approve Plan & Begin</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onPlanDecision && onPlanDecision(taskPlan, 'reject')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: 'rgba(239, 68, 68, 0.2)',
+                color: '#f87171',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: 5,
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <X size={13} />
+              <span>Reject Plan</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsModifying(!isModifying)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: '#2d333b',
+                color: '#c7d2fe',
+                border: '1px solid #3b4252',
+                borderRadius: 5,
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Sliders size={13} />
+              <span>{isModifying ? 'Cancel Modification' : 'Modify Plan'}</span>
+            </button>
+          </div>
+
+          {isModifying && (
+            <form onSubmit={handleModifySubmit} style={{ marginTop: 10 }}>
+              <textarea
+                value={modifyNotes}
+                onChange={e => setModifyNotes(e.target.value)}
+                placeholder="Describe how to adjust the plan (e.g. 'Combine steps 1 and 2, add step for dark mode')..."
+                style={{
+                  width: '100%',
+                  background: '#15171c',
+                  border: '1px solid #374151',
+                  borderRadius: 5,
+                  padding: 8,
+                  color: '#e2e8f0',
+                  fontSize: 11,
+                  minHeight: 50,
+                  resize: 'vertical',
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  marginTop: 6,
+                  background: '#4f46e5',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '5px 10px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Submit Plan Modifications
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* ── Active Execution Controls (Pause / Resume / Cancel) ─────────────── */}
+      {(isInProgress || isPaused) && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#20242e', borderRadius: 6, padding: '6px 10px', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#94a3b8' }}>
+            <Clock size={13} color="#818cf8" />
+            <span>Execution Status: <strong style={{ color: currentTheme.text }}>{status.toUpperCase()}</strong></span>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {isInProgress ? (
+              <button
+                type="button"
+                onClick={() => onPlanControl && onPlanControl(taskPlan, 'pause')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: 'rgba(234, 179, 8, 0.15)',
+                  color: '#facc15',
+                  border: '1px solid rgba(234, 179, 8, 0.3)',
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <Pause size={12} />
+                <span>Pause</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onPlanControl && onPlanControl(taskPlan, 'resume')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#34d399',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <Play size={12} />
+                <span>Resume</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onPlanControl && onPlanControl(taskPlan, 'cancel')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#f87171',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Square size={12} />
+              <span>Cancel</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Steps Timeline ──────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {steps.map((step, idx) => {
+          const isDone = step.status === 'completed';
+          const isStepRunning = step.status === 'in_progress';
+          const isFailed = step.status === 'failed';
+          const isStepBlocked = step.status === 'blocked';
+          const isSkipped = step.status === 'skipped';
+          const isExpanded = expandedStepId === step.id;
+
+          const stepStatusColor = isDone
+            ? '#34d399'
+            : isStepRunning
+            ? '#818cf8'
+            : isFailed || isStepBlocked
+            ? '#f87171'
+            : isSkipped
+            ? '#6b7280'
+            : '#94a3b8';
+
+          return (
+            <div
+              key={step.id}
+              style={{
+                background: '#15171c',
+                border: `1px solid ${isStepRunning ? '#6366f1' : isFailed || isStepBlocked ? '#ef4444' : '#2d333b'}`,
+                borderRadius: 6,
+                padding: '8px 10px',
+                fontSize: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                }}
+                onClick={() => toggleExpand(step.id)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {isDone ? (
+                    <CheckCircle2 size={14} color="#34d399" />
+                  ) : isFailed || isStepBlocked ? (
+                    <XCircle size={14} color="#f87171" />
+                  ) : isStepRunning ? (
+                    <RotateCcw size={14} color="#818cf8" style={{ animation: 'spin 1.5s linear infinite' }} />
+                  ) : (
+                    <Clock size={14} color="#94a3b8" />
+                  )}
+                  <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
+                    {step.id}: {step.title}
+                  </span>
+                  {step.actionType && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        padding: '1px 5px',
+                        borderRadius: 3,
+                        background: '#222631',
+                        color: '#a5b4fc',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {step.actionType}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: stepStatusColor,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {step.status}
+                  </span>
+                  {isExpanded ? <ChevronUp size={14} color="#94a3b8" /> : <ChevronDown size={14} color="#94a3b8" />}
+                </div>
+              </div>
+
+              {/* Target files tags */}
+              {step.targetFiles && step.targetFiles.length > 0 && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4, marginLeft: 20 }}>
+                  {step.targetFiles.map(file => (
+                    <span
+                      key={file}
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: '#1e232d',
+                        color: '#94a3b8',
+                        fontFamily: 'monospace',
+                        border: '1px solid #2d333b',
+                      }}
+                    >
+                      📄 {file}
+                    </span>
+                  ))}
+                  {step.dependencies && step.dependencies.length > 0 && (
+                    <span style={{ fontSize: 10, color: '#64748b', fontStyle: 'italic', alignSelf: 'center' }}>
+                      (Depends on: {step.dependencies.join(', ')})
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Expandable step details */}
+              {isExpanded && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #262a35', fontSize: 11, color: '#94a3b8', marginLeft: 20 }}>
+                  {step.description && (
+                    <div style={{ marginBottom: 4 }}>
+                      <strong style={{ color: '#cbd5e1' }}>Objective:</strong> {step.description}
+                    </div>
+                  )}
+                  {step.verificationCriteria && (
+                    <div style={{ marginBottom: 4 }}>
+                      <strong style={{ color: '#cbd5e1' }}>Verification Criteria:</strong> {step.verificationCriteria}
+                    </div>
+                  )}
+                  {step.outputSummary && (
+                    <div style={{ marginBottom: 4, color: '#93c5fd' }}>
+                      <strong style={{ color: '#cbd5e1' }}>Result:</strong> {step.outputSummary}
+                    </div>
+                  )}
+                  {step.errorDetails && (
+                    <div style={{ padding: '6px 8px', background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', borderRadius: 4, marginTop: 4 }}>
+                      <strong>Failure:</strong> {step.errorDetails}
+                      {step.recoveryAttempts > 0 && (
+                        <div style={{ marginTop: 2, fontSize: 10, color: '#f87171' }}>
+                          Recovery Attempts: {step.recoveryAttempts} / {step.maxRecoveryAttempts || 2}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step Action Buttons */}
+              {(isFailed || isStepBlocked) && step.recoveryAttempts < 2 && onRecoverStep && (
+                <div style={{ marginTop: 8, marginLeft: 20 }}>
+                  <button
+                    type="button"
+                    onClick={() => onRecoverStep(step)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11,
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      border: '1px solid rgba(239, 68, 68, 0.4)',
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: '#fca5a5',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <RotateCcw size={11} />
+                    <span>Diagnose & Recover Step (Attempt {step.recoveryAttempts + 1}/2)</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Next step execution button if approved */}
+              {!isAwaitingApproval && !isCancelled && !isRejected && step.status === 'pending' && (!nextExecutableStep || nextExecutableStep.id === step.id) && onExecuteStep && (
+                <div style={{ marginTop: 8, marginLeft: 20 }}>
+                  <button
+                    type="button"
+                    onClick={() => onExecuteStep(step)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11,
+                      padding: '4px 9px',
+                      borderRadius: 4,
+                      border: '1px solid #4f46e5',
+                      background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                      color: '#ffffff',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Play size={11} fill="currentColor" />
+                    <span>Execute Step {step.id}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Final Execution Summary Banner ─────────────────────────────────── */}
+      {isCompleted && (
+        <div
+          style={{
+            marginTop: 12,
+            background: 'rgba(16, 185, 129, 0.1)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            borderRadius: 6,
+            padding: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#34d399', fontWeight: 700, fontSize: 12 }}>
+            <CheckCircle2 size={15} />
+            <span>Multi-Step Task Execution Completed Successfully!</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#d1d5db', marginTop: 4, lineHeight: 1.4 }}>
+            All {steps.length} steps have been executed and verified.
+            {allTargetFiles.length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                <strong>Modified Files:</strong> {allTargetFiles.join(', ')}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Dedicated CollabCode AI Chat Workspace Component ──────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
@@ -698,6 +1248,69 @@ export default function AiChatWorkspace({
   const [internalInputPrompt, setInternalInputPrompt] = useState('');
   const inputPrompt = parentInputPrompt !== undefined ? parentInputPrompt : internalInputPrompt;
   const setInputPrompt = parentSetInputPrompt || setInternalInputPrompt;
+
+  // ── Phase 6: Persistent Task Plan State ─────────────────────────────────────
+  const storageKey = useMemo(() => `collabcode_task_plan_${roomId || 'default'}`, [roomId]);
+  const [activeTaskPlan, setActiveTaskPlan] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`collabcode_task_plan_${roomId || 'default'}`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  });
+
+  useEffect(() => {
+    try {
+      if (activeTaskPlan) {
+        localStorage.setItem(storageKey, JSON.stringify(activeTaskPlan));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch {}
+  }, [activeTaskPlan, storageKey]);
+
+  // Synchronize approval of proposals into the active task plan
+  const handleApproveProposal = useCallback(async (prop) => {
+    if (onApproveProposal) {
+      await onApproveProposal(prop);
+    }
+    setActiveTaskPlan(prev => {
+      if (!prev || !Array.isArray(prev.steps)) return prev;
+      const updatedSteps = prev.steps.map(s => {
+        const matchesProposal = (s.proposals && s.proposals.some(p => p.id === prop.id)) ||
+          (s.targetFiles && prop.changes && prop.changes.some(c => s.targetFiles.includes(c.path)));
+        if (matchesProposal) {
+          return {
+            ...s,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            outputSummary: 'Changes approved and applied to project.',
+          };
+        }
+        return s;
+      });
+      const completed = updatedSteps.filter(s => s.status === 'completed').length;
+      const total = updatedSteps.length;
+      const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
+      const nextPending = updatedSteps.findIndex(s => s.status !== 'completed' && s.status !== 'skipped');
+
+      const updated = {
+        ...prev,
+        steps: updatedSteps,
+        currentStepIndex: nextPending >= 0 ? nextPending : total - 1,
+        stats: {
+          ...prev.stats,
+          completedSteps: completed,
+          progressPercent,
+        },
+        status: completed === total ? 'completed' : prev.status,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setMessages(msgs => msgs.map(m => m.taskPlan?.planId === prev.planId ? { ...m, taskPlan: updated } : m));
+      return updated;
+    });
+  }, [onApproveProposal, setMessages]);
 
   const [internalIsLoading, setInternalIsLoading] = useState(false);
   const isLoading = parentIsLoading !== undefined ? parentIsLoading : internalIsLoading;
@@ -781,6 +1394,7 @@ export default function AiChatWorkspace({
       // Build the request payload including roomId and fileTree for agent tools
       const requestPayload = { messages: payloadMessages };
       if (roomId) requestPayload.roomId = roomId;
+      if (activeTaskPlan) requestPayload.taskPlan = activeTaskPlan;
       // Send a lightweight snapshot of the file tree for Vercel serverless (which has no in-memory fileTrees)
       if (fileTree && typeof fileTree === 'object' && Object.keys(fileTree).length > 0) {
         requestPayload.fileTree = fileTree;
@@ -854,6 +1468,10 @@ export default function AiChatWorkspace({
         throw new Error('Received an empty response from AI service.');
       }
 
+      if (data.taskPlan) {
+        setActiveTaskPlan(data.taskPlan);
+      }
+
       const assistantMessage = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
@@ -862,6 +1480,7 @@ export default function AiChatWorkspace({
         proposal: data.proposal || null,
         testPlan: data.testPlan || null,
         testResults: data.testResults || null,
+        taskPlan: data.taskPlan || null,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -892,6 +1511,102 @@ export default function AiChatWorkspace({
       }
     }
   };
+
+  const handlePlanDecision = useCallback(async (plan, action, options = {}) => {
+    try {
+      let updated = null;
+      try {
+        const res = await fetch('/api/ai/plan/decision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan, action, options }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updated = data.plan;
+        }
+      } catch {}
+
+      if (!updated) {
+        const now = new Date().toISOString();
+        updated = JSON.parse(JSON.stringify(plan));
+        if (action === 'approve') {
+          updated.status = 'approved';
+          updated.userApproval.status = 'approved';
+          updated.userApproval.approvedAt = now;
+        } else if (action === 'reject') {
+          updated.status = 'rejected';
+          updated.userApproval.status = 'rejected';
+          updated.userApproval.rejectionReason = options.rejectionReason || 'User rejected execution plan.';
+        }
+      }
+
+      setActiveTaskPlan(updated);
+      setMessages(msgs => msgs.map(m => m.taskPlan?.planId === plan.planId ? { ...m, taskPlan: updated } : m));
+
+      if (action === 'approve') {
+        const firstStep = updated.steps[0];
+        handleSendMessage(`Execution plan "${updated.title}" approved by user. Please begin executing ${firstStep.id}: ${firstStep.title}.`);
+      } else if (action === 'reject') {
+        handleSendMessage(`I have rejected this execution plan. Please inspect the project and propose an alternative approach.`);
+      }
+    } catch (err) {
+      console.error('Plan decision error:', err);
+    }
+  }, [handleSendMessage, setMessages]);
+
+  const handlePlanControl = useCallback(async (plan, action, reason = '') => {
+    try {
+      let updated = null;
+      try {
+        const res = await fetch('/api/ai/plan/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan, action, reason }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updated = data.plan;
+        }
+      } catch {}
+
+      if (!updated) {
+        const now = new Date().toISOString();
+        updated = JSON.parse(JSON.stringify(plan));
+        if (action === 'pause') {
+          updated.status = 'paused';
+          updated.pauseReason = reason || 'User paused plan execution.';
+        } else if (action === 'resume') {
+          updated.status = 'in_progress';
+        } else if (action === 'cancel') {
+          updated.status = 'cancelled';
+          updated.steps.forEach(s => {
+            if (s.status === 'pending' || s.status === 'in_progress') s.status = 'skipped';
+          });
+        }
+      }
+
+      setActiveTaskPlan(updated);
+      setMessages(msgs => msgs.map(m => m.taskPlan?.planId === plan.planId ? { ...m, taskPlan: updated } : m));
+
+      if (action === 'resume') {
+        const nextStep = updated.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
+        if (nextStep) {
+          handleSendMessage(`Execution resumed by user. Please continue executing ${nextStep.id}: ${nextStep.title}.`);
+        }
+      }
+    } catch (err) {
+      console.error('Plan control error:', err);
+    }
+  }, [handleSendMessage, setMessages]);
+
+  const handleExecuteStep = useCallback((step) => {
+    handleSendMessage(`Execute step ${step.id}: ${step.title}. Verify prerequisites before modifying files.`);
+  }, [handleSendMessage]);
+
+  const handleRecoverStep = useCallback((step) => {
+    handleSendMessage(`Step ${step.id} failed with error: ${step.errorDetails || 'unknown'}. Use diagnose_code to analyze root cause and propose a fix with propose_file_edit.`);
+  }, [handleSendMessage]);
 
   const handleNewChat = () => {
     isSubmittingRef.current = false;
@@ -1010,10 +1725,20 @@ export default function AiChatWorkspace({
                       <TestPlanCard testPlan={msg.testPlan} />
                     )}
 
+                    {msg.taskPlan && (
+                      <TaskPlanCard
+                        taskPlan={msg.taskPlan}
+                        onPlanDecision={handlePlanDecision}
+                        onPlanControl={handlePlanControl}
+                        onExecuteStep={handleExecuteStep}
+                        onRecoverStep={handleRecoverStep}
+                      />
+                    )}
+
                     {msg.proposal && (
                       <DiffPreview
                         proposal={msg.proposal}
-                        onApprove={(prop) => onApproveProposal ? onApproveProposal(prop) : Promise.resolve()}
+                        onApprove={handleApproveProposal}
                         onReject={(prop) => onRejectProposal ? onRejectProposal(prop) : Promise.resolve()}
                       />
                     )}
